@@ -1,0 +1,63 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "clang-warnings-hardening",
+      "hidden": true,
+      "description": "Base preset with comprehensive warnings and hardening flags",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Wunused -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE",
+        "CMAKE_C_FLAGS": "-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wformat=2 -Wimplicit-fallthrough -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack",
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON"
+      }
+    },
+    {
+      "name": "clang-20",
+      "displayName": "Clang 20 Configuration",
+      "description": "Build configuration using Clang++-20 compiler",
+      "inherits": "clang-warnings-hardening",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++-20",
+        "CMAKE_C_COMPILER": "clang-20",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "clang-20-release",
+      "displayName": "Clang 20 Release Configuration",
+      "description": "Release build configuration using Clang++-20 compiler",
+      "inherits": "clang-warnings-hardening",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++-20",
+        "CMAKE_C_COMPILER": "clang-20",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "clang-20-build",
+      "configurePreset": "clang-20",
+      "displayName": "Build with Clang 20",
+      "description": "Build using Clang++-20 compiler"
+    },
+    {
+      "name": "clang-20-release-build",
+      "configurePreset": "clang-20-release",
+      "displayName": "Build Release with Clang 20",
+      "description": "Build release version using Clang++-20 compiler"
+    }
+  ]
+}
