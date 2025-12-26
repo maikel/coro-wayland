@@ -119,7 +119,7 @@ public:
   /// Final awaiter that implements symmetric transfer for continuation chaining.
   /// When the task completes, this resumes the awaiting coroutine without stack growth.
   struct FinalAwaiter {
-    static constexpr auto await_ready() noexcept -> std::true_type;
+    static constexpr auto await_ready() noexcept -> std::false_type;
 
     /// Returns the continuation to resume, enabling tail-call optimization
     template <class OtherPromise>
@@ -181,7 +181,7 @@ public:
 /// - Stop token propagation from parent coroutine
 /// - Automatic cancellation via stop_callback
 /// - Environment query interface for child tasks
-template <class Tp> class DefaultContext {
+class DefaultContext {
 public:
   /// Environment object providing query interface for stop tokens
   class Env {
@@ -200,12 +200,6 @@ public:
 
   template <class Promise> explicit DefaultContext(std::coroutine_handle<Promise> handle) noexcept;
 
-  template <class... Args> void set_value(Args&&... args) noexcept;
-
-  void set_error(std::exception_ptr eptr) noexcept;
-
-  void set_stopped() noexcept;
-
   auto get_env() const noexcept -> Env;
 
 private:
@@ -220,7 +214,7 @@ private:
 };
 
 /// Convenient alias for BasicTask with default cancellation support
-template <class Tp> using Task = BasicTask<Tp, DefaultContext<Tp>>;
+template <class Tp> using Task = BasicTask<Tp, DefaultContext>;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                             TaskPromiseBase<Tp, Context>
@@ -272,7 +266,7 @@ auto TaskPromiseBase<Tp, Context>::get_continuation() -> std::coroutine_handle<>
 
 template <class Tp, class Context>
 constexpr auto TaskPromiseBase<Tp, Context>::FinalAwaiter::await_ready() noexcept
-    -> std::true_type {
+    -> std::false_type {
   return {};
 }
 
@@ -328,12 +322,11 @@ template <class Context> void TaskPromise<void, Context>::return_void() noexcept
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                                       DefaultContext<Tp>
 
-template <class Tp>
 template <class Promise>
-DefaultContext<Tp>::DefaultContext(std::coroutine_handle<Promise> handle) noexcept
-    : mStopCallback(get_stop_token(get_env(handle.promise())), OnStopRequested{*this}) {}
+DefaultContext::DefaultContext(std::coroutine_handle<Promise> handle) noexcept
+    : mStopCallback(get_stop_token(::ms::get_env(handle.promise())), OnStopRequested{*this}) {}
 
-template <class Tp> auto DefaultContext<Tp>::get_env() const noexcept -> Env { return Env{this}; }
+inline auto DefaultContext::get_env() const noexcept -> Env { return Env{this}; }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                           BasicTask<Tp, Context>::Awaiter
