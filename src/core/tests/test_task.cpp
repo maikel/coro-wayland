@@ -5,6 +5,8 @@
 
 #include <cassert>
 
+auto test_task_void() -> ms::Task<void> { co_return; }
+
 auto test_task() -> ms::Task<int> { co_return 42; }
 
 struct Coro {
@@ -22,8 +24,17 @@ Coro test_await_task(int* value) {
   *value = retVal;
 }
 
+Coro test_await_task_void(int* called) {
+  co_await test_task_void();
+  *called = 1;
+}
+
 int main() {
   int value = 0;
   test_await_task(&value);
   assert(value == 42);
+
+  int called = 0;
+  test_await_task_void(&called);
+  assert(called == 1);
 }
