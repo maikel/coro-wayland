@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include "Concepts.hpp"
+#include "ManualLifetime.hpp"
+#include "Queries.hpp"
+
 #include <coroutine>
 #include <exception>
 #include <functional>
@@ -15,101 +19,121 @@
 
 namespace ms {
 
-struct empty_env {};
-
-struct get_env_t {
-  template <class Promise> auto operator()(const Promise& promise) const noexcept {
-    if constexpr (requires { promise.get_env(); }) {
-      return promise.get_env();
-    } else {
-      return empty_env{};
-    }
-  }
-};
-inline constexpr get_env_t get_env{};
-
-struct get_stop_token_t {
-  template <class Env> auto operator()(const Env& env) const noexcept -> std::stop_token {
-    if constexpr (requires { env.query(*this); }) {
-      return env.query(*this);
-    } else {
-      return std::stop_token{};
-    }
-  }
-};
-inline constexpr get_stop_token_t get_stop_token{};
-
-struct get_scheduler_t {};
-inline constexpr get_scheduler_t get_scheduler{};
-
-template <class Tp, class Context> class BasicTask;
-
-template <class Tp, class Context> class TaskPromise;
-
-/// A lazily-evaluated coroutine task that produces a value of type Tp.
-///
-/// @tparam Tp The result type of the task (use void for no result)
-/// @tparam Context The execution context managing task lifecycle and cancellation
-///
-/// BasicTask represents a coroutine that doesn't start executing until co_await'ed.
-/// It supports automatic continuation chaining and cancellation via stop tokens.
-/// Use the Task<Tp> alias for the default context with cancellation support.
-template <class Tp, class Context> class BasicTask {
+template <class Tp> class TaskResult {
 public:
-  class Awaiter;
-  using promise_type = TaskPromise<Tp, Context>;
+  void set_error(std::exception_ptr error) noexcept;
+  void set_value(Tp&& value) noexcept;
 
-  BasicTask(BasicTask&& other) noexcept : mHandle(std::exchange(other.mHandle, nullptr)) {}
-
-  explicit BasicTask(std::coroutine_handle<promise_type> handle) noexcept : mHandle(handle) {}
-
-  ~BasicTask() {
-    if (mHandle) {
-      mHandle.destroy();
-    }
-  }
-
-  auto operator co_await() && -> Awaiter { return Awaiter{std::exchange(mHandle, nullptr)}; }
+  auto get_result() -> Tp;
 
 private:
-  std::coroutine_handle<promise_type> mHandle;
+  std::variant<std::monostate, std::exception_ptr, Tp> mResult;
 };
 
-/// Awaiter for BasicTask that handles suspension, continuation, and result propagation.
-///
-/// When a task is co_await'ed, this awaiter:
-/// 1. Sets up the continuation chain to resume the awaiting coroutine
-/// 2. Starts execution of the task (via symmetric transfer)
-/// 3. Propagates the result or exception when the task completes
-template <class Tp, class Context> class BasicTask<Tp, Context>::Awaiter {
+template <> class TaskResult<void> {
 public:
-  Awaiter() = delete;
-  Awaiter(const Awaiter&) = delete;
-  Awaiter(Awaiter&&) = delete;
-  Awaiter& operator=(const Awaiter&) = delete;
-  Awaiter& operator=(Awaiter&&) = delete;
+  void set_error(std::exception_ptr error) noexcept;
+  void set_value() noexcept;
 
-  explicit Awaiter(std::coroutine_handle<promise_type> handle) noexcept;
+  auto get_result() -> void;
 
-  ~Awaiter();
+private:
+  std::variant<std::monostate, std::exception_ptr, std::monostate> mResult;
+};
 
-  static constexpr auto await_ready() noexcept;
+template <class Tp, class Env> class TaskOperationState : public TaskResult<Tp> {
+public:
+  virtual void set_stopped() noexcept = 0;
+  virtual auto get_env() const noexcept -> Env = 0;
+  virtual auto get_continuation() -> std::coroutine_handle<> = 0;
 
-  template <class OtherPromise>
-  auto await_suspend(std::coroutine_handle<OtherPromise> awaitingHandle) noexcept
-      -> std::coroutine_handle<>;
+protected:
+  virtual ~TaskOperationState() = default;
+};
+
+template <class Tp, class Traits, class... AwaitingPromise> class TaskAwaiter;
+template <class Tp, class Traits> class TaskPromise;
+
+template <class Tp, class Traits> class BasicTask {
+public:
+  using promise_type = TaskPromise<Tp, Traits>;
+
+  BasicTask(BasicTask&& other) noexcept;
+
+  explicit BasicTask(std::coroutine_handle<TaskPromise<Tp, Traits>> handle) noexcept;
+
+  ~BasicTask();
+
+  template <class AwaitingPromise>
+  auto connect(AwaitingPromise& promise) && noexcept -> TaskAwaiter<Tp, Traits, AwaitingPromise>;
+
+  auto operator co_await() && -> TaskAwaiter<Tp, Traits>;
+
+private:
+  std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
+};
+
+template <class Tp, class Traits, class AwaitingPromise>
+class TaskAwaiter<Tp, Traits, AwaitingPromise> : TaskOperationState<Tp, typename Traits::env_type> {
+public:
+  TaskAwaiter() = delete;
+  TaskAwaiter(const TaskAwaiter&) = delete;
+  TaskAwaiter(TaskAwaiter&&) = delete;
+  TaskAwaiter& operator=(const TaskAwaiter&) = delete;
+  TaskAwaiter& operator=(TaskAwaiter&&) = delete;
+
+  explicit TaskAwaiter(std::coroutine_handle<TaskPromise<Tp, Traits>> handle,
+                       AwaitingPromise& awaitingPromise) noexcept;
+
+  ~TaskAwaiter();
+
+  static constexpr auto await_ready() noexcept -> std::false_type;
+
+  auto await_suspend(std::coroutine_handle<AwaitingPromise> parent) noexcept
+      -> std::coroutine_handle<TaskPromise<Tp, Traits>>;
 
   auto await_resume() -> Tp;
 
 private:
-  std::coroutine_handle<promise_type> mHandle;
+  void set_stopped() noexcept override;
+  auto get_env() const noexcept -> typename Traits::env_type override;
+  auto get_continuation() -> std::coroutine_handle<> override;
+
+  std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
+  typename Traits::template context_type<AwaitingPromise> mContext;
 };
 
-/// Base promise type for task coroutines, handling lifecycle and continuation management.
-///
-/// Provides common functionality for suspending at start, chaining continuations,
-/// and propagating exceptions/cancellations through the context.
-template <class Tp, class Context> class TaskPromiseBase {
+template <class Tp, class Traits>
+class TaskAwaiter<Tp, Traits> : TaskOperationState<Tp, typename Traits::env_type> {
+public:
+  TaskAwaiter() = delete;
+  TaskAwaiter(const TaskAwaiter&) = delete;
+  TaskAwaiter(TaskAwaiter&&) = delete;
+  TaskAwaiter& operator=(const TaskAwaiter&) = delete;
+  TaskAwaiter& operator=(TaskAwaiter&&) = delete;
+
+  explicit TaskAwaiter(std::coroutine_handle<TaskPromise<Tp, Traits>> handle) noexcept;
+
+  ~TaskAwaiter();
+
+  static constexpr auto await_ready() noexcept -> std::false_type;
+
+  template <class AwaitingPromise>
+  auto await_suspend(std::coroutine_handle<AwaitingPromise> parent) noexcept
+      -> std::coroutine_handle<TaskPromise<Tp, Traits>>;
+
+  auto await_resume() -> Tp;
+
+private:
+  void set_stopped() noexcept override;
+  auto get_env() const noexcept -> typename Traits::env_type override;
+  auto get_continuation() -> std::coroutine_handle<> override;
+
+  std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
+  ManualLifetime<typename Traits::template context_type<>> mContext;
+};
+
+template <class Tp, class Traits> class TaskPromiseBase {
 public:
   TaskPromiseBase() = default;
 
@@ -121,7 +145,6 @@ public:
   struct FinalAwaiter {
     static constexpr auto await_ready() noexcept -> std::false_type;
 
-    /// Returns the continuation to resume, enabling tail-call optimization
     template <class OtherPromise>
     auto await_suspend(std::coroutine_handle<OtherPromise> handle) -> std::coroutine_handle<>;
 
@@ -129,243 +152,402 @@ public:
   };
   static constexpr auto final_suspend() noexcept -> FinalAwaiter;
 
+  void set_operation_state(TaskOperationState<Tp, typename Traits::env_type>* opState) noexcept;
+
+  void unhandled_exception();
+
   void unhandled_stopped();
 
-  template <class OtherPromise>
-  void set_continuation(std::coroutine_handle<OtherPromise> continuation);
+  auto get_env() const noexcept -> typename Traits::env_type;
 
-  auto get_continuation() -> std::coroutine_handle<>;
-
-  auto get_env() const noexcept -> typename Context::env_type;
-
-private:
-  std::optional<Context> mContext;
-  std::coroutine_handle<> mContinuation;
-  std::function<void()> mStopHandler;
+protected:
+  TaskOperationState<Tp, typename Traits::env_type>* mOpState = nullptr;
 };
 
 /// Promise type for tasks returning a value of type Tp
-template <class Tp, class Context> class TaskPromise : public TaskPromiseBase<Tp, Context> {
+template <class Tp, class Traits> class TaskPromise : public TaskPromiseBase<Tp, Traits> {
 public:
   TaskPromise() = default;
 
-  auto get_return_object() noexcept -> BasicTask<Tp, Context>;
-
-  void unhandled_exception();
+  auto get_return_object() noexcept -> BasicTask<Tp, Traits>;
 
   void return_value(Tp&& value) noexcept;
-
-  void return_value(const Tp& value) noexcept;
-
-  std::variant<std::monostate, std::exception_ptr, Tp> mResult;
 };
 
 /// Promise type specialization for tasks returning void
-template <class Context> class TaskPromise<void, Context> : public TaskPromiseBase<void, Context> {
+template <class Traits> class TaskPromise<void, Traits> : public TaskPromiseBase<void, Traits> {
 public:
   TaskPromise() = default;
 
-  auto get_return_object() noexcept -> BasicTask<void, Context>;
-
-  void unhandled_exception();
+  auto get_return_object() noexcept -> BasicTask<void, Traits>;
 
   void return_void() noexcept;
-
-  struct Unit {};
-  std::variant<std::monostate, std::exception_ptr, Unit> mResult;
 };
 
-/// Default execution context providing cancellation support via stop tokens.
-///
-/// Manages:
-/// - Stop token propagation from parent coroutine
-/// - Automatic cancellation via stop_callback
-/// - Environment query interface for child tasks
-class DefaultContext {
+class TaskEnv {
+private:
+  std::stop_token mStopToken;
+
 public:
-  /// Environment object providing query interface for stop tokens
-  class Env {
-  private:
-    const DefaultContext* mContext;
+  explicit TaskEnv(std::stop_token stopToken) noexcept;
 
-  public:
-    explicit Env(const DefaultContext* context) noexcept : mContext(context) {}
+  auto query(get_stop_token_t) const noexcept -> std::stop_token;
+};
 
-    auto query(get_stop_token_t) const noexcept -> std::stop_token {
-      return mContext->mStopSource.get_token();
-    }
-  };
+template <class... AwaitingPromise> class TaskContext;
 
-  using env_type = Env;
+template <class AwaitingPromise> class TaskContext<AwaitingPromise> {
+public:
+  explicit TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
 
-  template <class Promise> explicit DefaultContext(std::coroutine_handle<Promise> handle) noexcept;
+  auto get_continuation() const noexcept -> std::coroutine_handle<AwaitingPromise>;
 
-  auto get_env() const noexcept -> Env;
+  auto get_env() const noexcept -> TaskEnv;
+
+  void set_stopped() noexcept;
 
 private:
-  struct OnStopRequested {
-    DefaultContext& mContext;
+  std::coroutine_handle<AwaitingPromise> mAwaitingHandle;
+};
 
-    void operator()() noexcept { mContext.mStopSource.request_stop(); }
-  };
+struct TaskContextVtable {
+  auto (*get_continuation)(void*) noexcept -> std::coroutine_handle<>;
+  auto (*get_env)(const void*) noexcept -> TaskEnv;
+  void (*set_stopped)(void*) noexcept;
+};
 
-  std::stop_source mStopSource;
-  std::stop_callback<OnStopRequested> mStopCallback;
+template <class AwaitingPromise>
+inline constexpr TaskContextVtable TaskContextVtableFor = {
+    /*get_continuation*/ +[](void* pointer) noexcept -> std::coroutine_handle<> {
+      auto* promise = static_cast<AwaitingPromise*>(pointer);
+      return std::coroutine_handle<AwaitingPromise>::from_promise(*promise);
+    },
+    /*get_env*/
+    +[](const void* pointer) noexcept -> TaskEnv {
+      auto* promise = static_cast<const AwaitingPromise*>(pointer);
+      return TaskEnv{::ms::get_stop_token(::ms::get_env(*promise))};
+    },
+    /*set_stopped*/
+    +[](void* pointer) noexcept {
+      auto* promise = static_cast<AwaitingPromise*>(pointer);
+      if constexpr (requires { promise->unhandled_stopped(); }) {
+        promise->unhandled_stopped();
+      } else {
+        try {
+          throw std::system_error(std::make_error_code(std::errc::operation_canceled));
+        } catch (...) {
+          promise->unhandled_exception();
+        }
+      }
+    }};
+
+template <> class TaskContext<> {
+public:
+  template <class AwaitingPromise>
+  explicit TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
+
+  auto get_continuation() const noexcept -> std::coroutine_handle<>;
+
+  auto get_env() const noexcept -> TaskEnv;
+
+  void set_stopped() noexcept;
+
+private:
+  const TaskContextVtable* mVtable;
+  void* mPromise;
+};
+
+struct TaskTraits {
+  template <class... AwaitingPromise> using context_type = TaskContext<AwaitingPromise...>;
+
+  using env_type = TaskEnv;
 };
 
 /// Convenient alias for BasicTask with default cancellation support
-template <class Tp> using Task = BasicTask<Tp, DefaultContext>;
+template <class Tp> using Task = BasicTask<Tp, TaskTraits>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Implementation Details                                                  TaskResult<Tp>
+
+template <class Tp> void TaskResult<Tp>::set_error(std::exception_ptr error) noexcept {
+  mResult.template emplace<1>(error);
+}
+
+template <class Tp> void TaskResult<Tp>::set_value(Tp&& value) noexcept {
+  mResult.template emplace<2>(std::forward<Tp>(value));
+}
+
+template <class Tp> auto TaskResult<Tp>::get_result() -> Tp {
+  if (mResult.index() == 1) {
+    std::rethrow_exception(std::get<1>(mResult));
+  } else {
+    return std::get<2>(mResult);
+  }
+}
+
+void TaskResult<void>::set_error(std::exception_ptr error) noexcept {
+  mResult.template emplace<1>(error);
+}
+
+void TaskResult<void>::set_value() noexcept { mResult.template emplace<2>(std::monostate{}); }
+
+auto TaskResult<void>::get_result() -> void {
+  if (mResult.index() == 1) {
+    std::rethrow_exception(std::get<1>(mResult));
+  }
+}
+
+template <class Tp, class Traits>
+BasicTask<Tp, Traits>::BasicTask(BasicTask&& other) noexcept : mHandle(other.mHandle) {
+  other.mHandle = nullptr;
+}
+
+template <class Tp, class Traits>
+BasicTask<Tp, Traits>::BasicTask(std::coroutine_handle<TaskPromise<Tp, Traits>> handle) noexcept
+    : mHandle(handle) {}
+
+template <class Tp, class Traits> BasicTask<Tp, Traits>::~BasicTask() {
+  if (mHandle) {
+    mHandle.destroy();
+  }
+}
+
+template <class Tp, class Traits>
+template <class AwaitingPromise>
+auto BasicTask<Tp, Traits>::connect(AwaitingPromise& promise) && noexcept
+    -> TaskAwaiter<Tp, Traits, AwaitingPromise> {
+  return TaskAwaiter<Tp, Traits, AwaitingPromise>{std::exchange(mHandle, nullptr), promise};
+}
+
+template <class Tp, class Traits>
+auto BasicTask<Tp, Traits>::operator co_await() && -> TaskAwaiter<Tp, Traits> {
+  return TaskAwaiter<Tp, Traits>{std::exchange(mHandle, nullptr)};
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Implementation Details TaskContext<AwaitingPromise>
+
+template <class AwaitingPromise>
+TaskContext<AwaitingPromise>::TaskContext(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+    : mAwaitingHandle(awaitingHandle) {}
+
+template <class AwaitingPromise>
+auto TaskContext<AwaitingPromise>::get_continuation() const noexcept
+    -> std::coroutine_handle<AwaitingPromise> {
+  return mAwaitingHandle;
+}
+
+template <class AwaitingPromise>
+auto TaskContext<AwaitingPromise>::get_env() const noexcept -> TaskEnv {
+  return TaskEnv{::ms::get_stop_token(::ms::get_env(mAwaitingHandle.promise()))};
+}
+
+template <class AwaitingPromise> void TaskContext<AwaitingPromise>::set_stopped() noexcept {
+  if constexpr (requires { mAwaitingHandle.promise().unhandled_stopped(); }) {
+    mAwaitingHandle.promise().unhandled_stopped();
+  } else {
+    try {
+      throw std::system_error(std::make_error_code(std::errc::operation_canceled));
+    } catch (...) {
+      mAwaitingHandle.promise().unhandled_exception();
+    }
+  }
+}
+
+template <class AwaitingPromise>
+TaskContext<>::TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+    : mVtable(&TaskContextVtableFor<AwaitingPromise>),
+      mPromise(static_cast<void*>(&awaitingHandle.promise())) {}
+
+inline auto TaskContext<>::get_env() const noexcept -> TaskEnv {
+  return mVtable->get_env(mPromise);
+}
+
+inline void TaskContext<>::set_stopped() noexcept { mVtable->set_stopped(mPromise); }
+
+inline auto TaskContext<>::get_continuation() const noexcept -> std::coroutine_handle<> {
+  return mVtable->get_continuation(mPromise);
+}
+
+inline TaskEnv::TaskEnv(std::stop_token stopToken) noexcept : mStopToken(stopToken) {}
+
+inline auto TaskEnv::query(get_stop_token_t) const noexcept -> std::stop_token {
+  return mStopToken;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Implementation Details                                TaskAwaiter<Tp, Traits, AwaitingPromise>
+
+template <class Tp, class Traits, class AwaitingPromise>
+TaskAwaiter<Tp, Traits, AwaitingPromise>::TaskAwaiter(
+    std::coroutine_handle<TaskPromise<Tp, Traits>> handle,
+    AwaitingPromise& awaitingPromise) noexcept
+    : mHandle(handle),
+      mContext(std::coroutine_handle<AwaitingPromise>::from_promise(awaitingPromise)) {}
+
+template <class Tp, class Traits, class AwaitingPromise>
+TaskAwaiter<Tp, Traits, AwaitingPromise>::~TaskAwaiter() {
+  if (mHandle) {
+    mHandle.destroy();
+  }
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+constexpr auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_ready() noexcept -> std::false_type {
+  return {};
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_suspend(
+    std::coroutine_handle<AwaitingPromise>) noexcept
+    -> std::coroutine_handle<TaskPromise<Tp, Traits>> {
+  mHandle.promise().set_operation_state(this);
+  return mHandle;
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_resume() -> Tp {
+  auto& result = mHandle.promise().mResult;
+  if (result.index() == 1) {
+    std::rethrow_exception(std::get<1>(result));
+  } else {
+    return std::get<2>(result);
+  }
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+void TaskAwaiter<Tp, Traits, AwaitingPromise>::set_stopped() noexcept {
+  mContext.set_stopped();
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits, AwaitingPromise>::get_env() const noexcept ->
+    typename Traits::env_type {
+  return mContext.get_env();
+}
+
+template <class Tp, class Traits, class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits, AwaitingPromise>::get_continuation() -> std::coroutine_handle<> {
+  return mContext.get_continuation();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Implementation Details                                                TaskAwaiter<Tp, Traits>
+
+template <class Tp, class Traits>
+TaskAwaiter<Tp, Traits>::TaskAwaiter(std::coroutine_handle<TaskPromise<Tp, Traits>> handle) noexcept
+    : mHandle(handle) {}
+
+template <class Tp, class Traits> TaskAwaiter<Tp, Traits>::~TaskAwaiter() {
+  if (mHandle) {
+    mHandle.destroy();
+  }
+}
+
+template <class Tp, class Traits>
+constexpr auto TaskAwaiter<Tp, Traits>::await_ready() noexcept -> std::false_type {
+  return {};
+}
+
+template <class Tp, class Traits>
+template <class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits>::await_suspend(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+    -> std::coroutine_handle<TaskPromise<Tp, Traits>> {
+  mContext.emplace(awaitingHandle);
+  mHandle.promise().set_operation_state(this);
+  return mHandle;
+}
+
+template <class Tp, class Traits> auto TaskAwaiter<Tp, Traits>::await_resume() -> Tp {
+  return this->get_result();
+}
+
+template <class Tp, class Traits> void TaskAwaiter<Tp, Traits>::set_stopped() noexcept {
+  mContext->set_stopped();
+}
+
+template <class Tp, class Traits>
+auto TaskAwaiter<Tp, Traits>::get_env() const noexcept -> typename Traits::env_type {
+  return mContext->get_env();
+}
+
+template <class Tp, class Traits>
+auto TaskAwaiter<Tp, Traits>::get_continuation() -> std::coroutine_handle<> {
+  return mContext->get_continuation();
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                             TaskPromiseBase<Tp, Context>
 
-template <class Tp, class Context>
-constexpr auto TaskPromiseBase<Tp, Context>::initial_suspend() noexcept -> std::suspend_always {
+template <class Tp, class Traits>
+constexpr auto TaskPromiseBase<Tp, Traits>::initial_suspend() noexcept -> std::suspend_always {
   return {};
 }
 
-template <class Tp, class Context>
-constexpr auto TaskPromiseBase<Tp, Context>::final_suspend() noexcept -> FinalAwaiter {
+template <class Tp, class Traits>
+constexpr auto TaskPromiseBase<Tp, Traits>::final_suspend() noexcept -> FinalAwaiter {
   return {};
 }
 
-template <class Tp, class Context> void TaskPromiseBase<Tp, Context>::unhandled_stopped() {
-  mStopHandler();
+template <class Tp, class Traits> void TaskPromiseBase<Tp, Traits>::unhandled_stopped() {
+  mOpState->set_stopped();
 }
 
-/// Store the awaiting coroutine as continuation and set up stop handler.
-/// If parent supports unhandled_stopped(), use it; otherwise convert to exception.
-template <class Tp, class Context>
-template <class OtherPromise>
-void TaskPromiseBase<Tp, Context>::set_continuation(
-    std::coroutine_handle<OtherPromise> continuation) {
-  mContext.emplace(continuation);
-  mContinuation = continuation;
-  mStopHandler = [continuation]() noexcept {
-    if constexpr (requires { continuation.promise().unhandled_stopped(); }) {
-      continuation.promise().unhandled_stopped();
-    } else {
-      try {
-        throw std::system_error(std::make_error_code(std::errc::operation_canceled));
-      } catch (...) {
-        continuation.promise().unhandled_exception();
-      }
-    }
-  };
+template <class Tp, class Traits> void TaskPromiseBase<Tp, Traits>::unhandled_exception() {
+  mOpState->set_error(std::current_exception());
 }
 
-template <class Tp, class Context>
-auto TaskPromiseBase<Tp, Context>::get_env() const noexcept -> typename Context::env_type {
-  return mContext->get_env();
+template <class Tp, class Traits>
+void TaskPromiseBase<Tp, Traits>::set_operation_state(
+    TaskOperationState<Tp, typename Traits::env_type>* opState) noexcept {
+  mOpState = opState;
 }
 
-template <class Tp, class Context>
-auto TaskPromiseBase<Tp, Context>::get_continuation() -> std::coroutine_handle<> {
-  return mContinuation;
+template <class Tp, class Traits>
+auto TaskPromiseBase<Tp, Traits>::get_env() const noexcept -> typename Traits::env_type {
+  return mOpState->get_env();
 }
 
-template <class Tp, class Context>
-constexpr auto TaskPromiseBase<Tp, Context>::FinalAwaiter::await_ready() noexcept
+template <class Tp, class Traits>
+constexpr auto TaskPromiseBase<Tp, Traits>::FinalAwaiter::await_ready() noexcept
     -> std::false_type {
   return {};
 }
 
 /// Implement symmetric transfer: return continuation instead of resuming directly.
 /// This prevents unbounded stack growth in long continuation chains.
-template <class Tp, class Context>
+template <class Tp, class Traits>
 template <class OtherPromise>
-auto TaskPromiseBase<Tp, Context>::FinalAwaiter::await_suspend(
+auto TaskPromiseBase<Tp, Traits>::FinalAwaiter::await_suspend(
     std::coroutine_handle<OtherPromise> handle) -> std::coroutine_handle<> {
-  return handle.promise().get_continuation();
+  return handle.promise().mOpState->get_continuation();
 }
 
-template <class Tp, class Context>
-void TaskPromiseBase<Tp, Context>::FinalAwaiter::await_resume() noexcept {}
+template <class Tp, class Traits>
+void TaskPromiseBase<Tp, Traits>::FinalAwaiter::await_resume() noexcept {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-// Implementation Details                                                 TaskPromise<Tp, Context>
+// Implementation Details                                                 TaskPromise<Tp, Traits>
 
-template <class Tp, class Context>
-auto TaskPromise<Tp, Context>::get_return_object() noexcept -> BasicTask<Tp, Context> {
-  return BasicTask<Tp, Context>{
-      std::coroutine_handle<TaskPromise<Tp, Context>>::from_promise(*this)};
+template <class Tp, class Traits>
+auto TaskPromise<Tp, Traits>::get_return_object() noexcept -> BasicTask<Tp, Traits> {
+  return BasicTask<Tp, Traits>{std::coroutine_handle<TaskPromise<Tp, Traits>>::from_promise(*this)};
 }
 
-template <class Tp, class Context> void TaskPromise<Tp, Context>::unhandled_exception() {
-  mResult.template emplace<1>(std::current_exception());
+template <class Tp, class Traits> void TaskPromise<Tp, Traits>::return_value(Tp&& value) noexcept {
+  this->mOpState->set_value(std::forward<Tp>(value));
 }
 
-template <class Tp, class Context>
-void TaskPromise<Tp, Context>::return_value(Tp&& value) noexcept {
-  mResult.template emplace<2>(std::move(value));
+template <class Traits>
+auto TaskPromise<void, Traits>::get_return_object() noexcept -> BasicTask<void, Traits> {
+  return BasicTask<void, Traits>{
+      std::coroutine_handle<TaskPromise<void, Traits>>::from_promise(*this)};
 }
 
-template <class Tp, class Context>
-void TaskPromise<Tp, Context>::return_value(const Tp& value) noexcept {
-  mResult.template emplace<2>(value);
-}
-
-template <class Context>
-auto TaskPromise<void, Context>::get_return_object() noexcept -> BasicTask<void, Context> {
-  return BasicTask<void, Context>{
-      std::coroutine_handle<TaskPromise<void, Context>>::from_promise(*this)};
-}
-
-template <class Context> void TaskPromise<void, Context>::unhandled_exception() {
-  mResult.template emplace<1>(std::current_exception());
-}
-
-template <class Context> void TaskPromise<void, Context>::return_void() noexcept {
-  mResult.template emplace<2>(Unit{});
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Implementation Details                                                       DefaultContext<Tp>
-
-template <class Promise>
-DefaultContext::DefaultContext(std::coroutine_handle<Promise> handle) noexcept
-    : mStopCallback(get_stop_token(::ms::get_env(handle.promise())), OnStopRequested{*this}) {}
-
-inline auto DefaultContext::get_env() const noexcept -> Env { return Env{this}; }
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Implementation Details                                           BasicTask<Tp, Context>::Awaiter
-
-template <class Tp, class Context>
-BasicTask<Tp, Context>::Awaiter::Awaiter(std::coroutine_handle<promise_type> handle) noexcept
-    : mHandle(handle) {}
-
-template <class Tp, class Context> BasicTask<Tp, Context>::Awaiter::~Awaiter() {
-  if (mHandle) {
-    mHandle.destroy();
-  }
-}
-
-template <class Tp, class Context>
-constexpr auto BasicTask<Tp, Context>::Awaiter::await_ready() noexcept {
-  return false;
-}
-
-/// Set up continuation chain and start task execution via symmetric transfer
-template <class Tp, class Context>
-template <class OtherPromise>
-auto BasicTask<Tp, Context>::Awaiter::await_suspend(
-    std::coroutine_handle<OtherPromise> awaitingHandle) noexcept -> std::coroutine_handle<> {
-  mHandle.promise().set_continuation(awaitingHandle);
-  return mHandle;
-}
-
-/// Extract and return the task result, rethrowing any captured exception
-template <class Tp, class Context> auto BasicTask<Tp, Context>::Awaiter::await_resume() -> Tp {
-  auto& result = mHandle.promise().mResult;
-
-  if (result.index() == 1) {
-    std::rethrow_exception(std::get<1>(result));
-  }
-
-  if constexpr (!std::is_void_v<Tp>) {
-    return std::get<2>(std::move(result));
-  }
+template <class Traits> void TaskPromise<void, Traits>::return_void() noexcept {
+  this->mOpState->set_value();
 }
 
 } // namespace ms
