@@ -11,7 +11,7 @@
       "hidden": true,
       "description": "Base preset with comprehensive warnings and hardening flags",
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Wunused -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -Wall -Wextra -Werror=switch -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Wunused -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE",
         "CMAKE_C_FLAGS": "-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wformat=2 -Wimplicit-fallthrough -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE",
         "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack",
         "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack",

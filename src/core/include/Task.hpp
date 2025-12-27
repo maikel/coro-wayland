@@ -183,9 +183,7 @@ public:
 
   /// Transform awaitable expressions to connect them with this promise.
   /// Enables sender/receiver integration and custom awaitable protocols.
-  template <class Self, class Expression>
-  auto await_transform(this Self& self, Expression&& expr)
-    requires requires { std::forward<Expression>(expr).connect(self); };
+  template <class Self, class Expression> auto await_transform(this Self& self, Expression&& expr);
 
 protected:
   TaskOperationState<Tp, typename Traits::env_type>* mOpState = nullptr;
@@ -559,10 +557,12 @@ constexpr auto TaskPromiseBase<Tp, Traits>::FinalAwaiter::await_ready() noexcept
 
 template <class Tp, class Traits>
 template <class Self, class Expression>
-auto TaskPromiseBase<Tp, Traits>::await_transform(this Self& self, Expression&& expr)
-  requires requires { std::forward<Expression>(expr).connect(self); }
-{
-  return std::forward<Expression>(expr).connect(self);
+auto TaskPromiseBase<Tp, Traits>::await_transform(this Self& self, Expression&& expr) {
+  if constexpr (requires { std::forward<Expression>(expr).connect(self); }) {
+    return std::forward<Expression>(expr).connect(self);
+  } else {
+    return std::forward<Expression>(expr);
+  }
 }
 
 /// Implement symmetric transfer: return continuation instead of resuming directly.

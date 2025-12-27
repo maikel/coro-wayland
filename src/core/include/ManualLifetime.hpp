@@ -18,11 +18,7 @@ public:
   auto operator->() const noexcept -> const Tp*;
 
 private:
-  struct Unit {};
-  union {
-    Unit mDummy;
-    Tp mValue;
-  } mStorage{};
+  alignas(Tp) unsigned char mStorage[sizeof(Tp)];
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -33,18 +29,20 @@ template <class Tp> ManualLifetime<Tp>::ManualLifetime() noexcept = default;
 template <class Tp> ManualLifetime<Tp>::~ManualLifetime() noexcept = default;
 
 template <class Tp> template <class... Args> Tp& ManualLifetime<Tp>::emplace(Args&&... args) {
-  new (&mStorage.mValue) Tp(static_cast<Args&&>(args)...);
-  return mStorage.mValue;
+  Tp* pointer = new (mStorage) Tp(static_cast<Args&&>(args)...);
+  return *pointer;
 }
 
-template <class Tp> void ManualLifetime<Tp>::destroy() noexcept { mStorage.mValue.~Tp(); }
+template <class Tp> void ManualLifetime<Tp>::destroy() noexcept {
+  reinterpret_cast<Tp*>(mStorage)->~Tp();
+}
 
 template <class Tp> auto ManualLifetime<Tp>::operator->() noexcept -> Tp* {
-  return &mStorage.mValue;
+  return reinterpret_cast<Tp*>(mStorage);
 }
 
 template <class Tp> auto ManualLifetime<Tp>::operator->() const noexcept -> const Tp* {
-  return &mStorage.mValue;
+  return reinterpret_cast<const Tp*>(mStorage);
 }
 
 } // namespace ms
