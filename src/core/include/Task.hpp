@@ -19,6 +19,8 @@
 
 namespace ms {
 
+/// Storage for task results: value or exception.
+/// Provides uniform interface for setting and retrieving task outcomes.
 template <class Tp> class TaskResult {
 public:
   void set_error(std::exception_ptr error) noexcept;
@@ -41,6 +43,9 @@ private:
   std::variant<std::monostate, std::exception_ptr, std::monostate> mResult;
 };
 
+/// Abstract interface for task operation state.
+/// Provides the bridge between task coroutines and their execution context.
+/// Handles continuation management, environment queries, and cancellation.
 template <class Tp, class Env> class TaskOperationState : public TaskResult<Tp> {
 public:
   virtual void set_stopped() noexcept = 0;
@@ -54,6 +59,13 @@ protected:
 template <class Tp, class Traits, class... AwaitingPromise> class TaskAwaiter;
 template <class Tp, class Traits> class TaskPromise;
 
+/// A lazily-evaluated coroutine task that produces a value of type Tp.
+///
+/// @tparam Tp The result type of the task (use void for no result)
+/// @tparam Traits Defines context and environment types for execution control
+///
+/// Tasks don't execute until co_await'ed, enabling composable async operations.
+/// The Traits parameter allows customization of cancellation and environment behavior.
 template <class Tp, class Traits> class BasicTask {
 public:
   using promise_type = TaskPromise<Tp, Traits>;
@@ -73,6 +85,9 @@ private:
   std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
 };
 
+/// TaskAwaiter specialization for statically-known parent promise type.
+/// Avoids virtual dispatch by storing concrete TaskContext<AwaitingPromise>.
+/// Used when the awaiting coroutine's promise type is known at compile time.
 template <class Tp, class Traits, class AwaitingPromise>
 class TaskAwaiter<Tp, Traits, AwaitingPromise> : TaskOperationState<Tp, typename Traits::env_type> {
 public:
@@ -103,6 +118,9 @@ private:
   typename Traits::template context_type<AwaitingPromise> mContext;
 };
 
+/// TaskAwaiter specialization for type-erased parent promise.
+/// Uses vtable-based dispatch via TaskContext<> for runtime polymorphism.
+/// Used when awaited directly without static parent information.
 template <class Tp, class Traits>
 class TaskAwaiter<Tp, Traits> : TaskOperationState<Tp, typename Traits::env_type> {
 public:
@@ -133,6 +151,9 @@ private:
   ManualLifetime<typename Traits::template context_type<>> mContext;
 };
 
+/// Base promise type for task coroutines.
+/// Manages coroutine lifecycle, continuation chains, and environment queries.
+/// Stores pointer to operation state to delegate result/cancellation handling.
 template <class Tp, class Traits> class TaskPromiseBase {
 public:
   TaskPromiseBase() = default;
@@ -160,6 +181,12 @@ public:
 
   auto get_env() const noexcept -> typename Traits::env_type;
 
+  /// Transform awaitable expressions to connect them with this promise.
+  /// Enables sender/receiver integration and custom awaitable protocols.
+  template <class Self, class Expression>
+  auto await_transform(this Self& self, Expression&& expr)
+    requires requires { std::forward<Expression>(expr).connect(self); };
+
 protected:
   TaskOperationState<Tp, typename Traits::env_type>* mOpState = nullptr;
 };
@@ -184,6 +211,8 @@ public:
   void return_void() noexcept;
 };
 
+/// Environment for task execution providing stop token queries.
+/// Encapsulates cancellation state propagated from parent coroutines.
 class TaskEnv {
 private:
   std::stop_token mStopToken;
@@ -196,6 +225,8 @@ public:
 
 template <class... AwaitingPromise> class TaskContext;
 
+/// Task context with statically-known parent promise type.
+/// Directly stores parent handle, avoiding indirection.
 template <class AwaitingPromise> class TaskContext<AwaitingPromise> {
 public:
   explicit TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
@@ -210,12 +241,16 @@ private:
   std::coroutine_handle<AwaitingPromise> mAwaitingHandle;
 };
 
+/// Virtual function table for type-erased task contexts.
+/// Enables runtime polymorphism for parent promise operations.
 struct TaskContextVtable {
   auto (*get_continuation)(void*) noexcept -> std::coroutine_handle<>;
   auto (*get_env)(const void*) noexcept -> TaskEnv;
   void (*set_stopped)(void*) noexcept;
 };
 
+/// Compile-time vtable instance for specific promise type.
+/// Static functions cast void* back to concrete promise type.
 template <class AwaitingPromise>
 inline constexpr TaskContextVtable TaskContextVtableFor = {
     /*get_continuation*/ +[](void* pointer) noexcept -> std::coroutine_handle<> {
@@ -241,6 +276,8 @@ inline constexpr TaskContextVtable TaskContextVtableFor = {
       }
     }};
 
+/// Type-erased task context using vtable dispatch.
+/// Stores void* to parent promise with vtable for dynamic operations.
 template <> class TaskContext<> {
 public:
   template <class AwaitingPromise>
@@ -257,6 +294,7 @@ private:
   void* mPromise;
 };
 
+/// Default traits for Task, defining context and environment types.
 struct TaskTraits {
   template <class... AwaitingPromise> using context_type = TaskContext<AwaitingPromise...>;
 
@@ -343,6 +381,8 @@ auto TaskContext<AwaitingPromise>::get_env() const noexcept -> TaskEnv {
   return TaskEnv{::ms::get_stop_token(::ms::get_env(mAwaitingHandle.promise()))};
 }
 
+/// Propagate cancellation to parent coroutine.
+/// Prefers unhandled_stopped() if available, otherwise converts to exception.
 template <class AwaitingPromise> void TaskContext<AwaitingPromise>::set_stopped() noexcept {
   if constexpr (requires { mAwaitingHandle.promise().unhandled_stopped(); }) {
     mAwaitingHandle.promise().unhandled_stopped();
@@ -398,6 +438,8 @@ constexpr auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_ready() noexcept 
   return {};
 }
 
+/// Suspend and transfer control to the task via symmetric transfer.
+/// Links promise to this awaiter before starting task execution.
 template <class Tp, class Traits, class AwaitingPromise>
 auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_suspend(
     std::coroutine_handle<AwaitingPromise>) noexcept
@@ -408,12 +450,7 @@ auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_suspend(
 
 template <class Tp, class Traits, class AwaitingPromise>
 auto TaskAwaiter<Tp, Traits, AwaitingPromise>::await_resume() -> Tp {
-  auto& result = mHandle.promise().mResult;
-  if (result.index() == 1) {
-    std::rethrow_exception(std::get<1>(result));
-  } else {
-    return std::get<2>(result);
-  }
+  return this->get_result();
 }
 
 template <class Tp, class Traits, class AwaitingPromise>
@@ -499,12 +536,16 @@ template <class Tp, class Traits> void TaskPromiseBase<Tp, Traits>::unhandled_ex
   mOpState->set_error(std::current_exception());
 }
 
+/// Connect promise to operation state (awaiter).
+/// Called by awaiter on suspension to establish bidirectional link.
 template <class Tp, class Traits>
 void TaskPromiseBase<Tp, Traits>::set_operation_state(
     TaskOperationState<Tp, typename Traits::env_type>* opState) noexcept {
   mOpState = opState;
 }
 
+/// Query environment from operation state.
+/// Delegates to awaiter which holds parent context.
 template <class Tp, class Traits>
 auto TaskPromiseBase<Tp, Traits>::get_env() const noexcept -> typename Traits::env_type {
   return mOpState->get_env();
@@ -514,6 +555,14 @@ template <class Tp, class Traits>
 constexpr auto TaskPromiseBase<Tp, Traits>::FinalAwaiter::await_ready() noexcept
     -> std::false_type {
   return {};
+}
+
+template <class Tp, class Traits>
+template <class Self, class Expression>
+auto TaskPromiseBase<Tp, Traits>::await_transform(this Self& self, Expression&& expr)
+  requires requires { std::forward<Expression>(expr).connect(self); }
+{
+  return std::forward<Expression>(expr).connect(self);
 }
 
 /// Implement symmetric transfer: return continuation instead of resuming directly.
