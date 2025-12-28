@@ -5,18 +5,20 @@
 
 #include <cassert>
 
-auto test_task_void() -> ms::Task<void> { co_return; }
+// Coroutines used in tests
+auto coro_task_void() -> ms::Task<void> { co_return; }
 
-auto test_task() -> ms::Task<int> { co_return 42; }
+auto coro_task_int() -> ms::Task<int> { co_return 42; }
 
-auto test_task_in_task() -> ms::Task<int> {
-  co_await test_task_void();
+auto coro_task_in_task() -> ms::Task<int> {
+  co_await coro_task_void();
   co_return 42;
 }
 
-struct Coro {
+// Driver coroutine type for testing Task awaiting
+struct DriverCoro {
   struct promise_type {
-    Coro get_return_object() { return {}; }
+    DriverCoro get_return_object() { return {}; }
     std::suspend_never initial_suspend() { return {}; }
     std::suspend_never final_suspend() noexcept { return {}; }
     void return_void() {}
@@ -24,31 +26,42 @@ struct Coro {
   };
 };
 
-Coro test_await_task(int* value) {
-  int retVal = co_await test_task();
+DriverCoro coro_await_task(int* value) {
+  int retVal = co_await coro_task_int();
   *value = retVal;
 }
 
-Coro test_await_task_void(int* called) {
-  co_await test_task_void();
+DriverCoro coro_await_task_void(int* called) {
+  co_await coro_task_void();
   *called = 1;
 }
 
-Coro test_await_task_in_task(int* value) {
-  int retVal = co_await test_task_in_task();
+DriverCoro coro_await_task_in_task(int* value) {
+  int retVal = co_await coro_task_in_task();
   *value = retVal;
 }
 
-int main() {
+// Test cases
+void test_await_task_with_int_result() {
   int value = 0;
-  test_await_task(&value);
+  coro_await_task(&value);
   assert(value == 42);
+}
 
+void test_await_task_with_void_result() {
   int called = 0;
-  test_await_task_void(&called);
+  coro_await_task_void(&called);
   assert(called == 1);
+}
 
+void test_await_task_composition() {
   int value2 = 0;
-  test_await_task_in_task(&value2);
+  coro_await_task_in_task(&value2);
   assert(value2 == 42);
+}
+
+int main() {
+  test_await_task_with_int_result();
+  test_await_task_with_void_result();
+  test_await_task_composition();
 }

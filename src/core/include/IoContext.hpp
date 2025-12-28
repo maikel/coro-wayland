@@ -5,7 +5,7 @@
 
 #include "ImmovableBase.hpp"
 #include "ManualLifetime.hpp"
-#include "Queries.hpp"
+#include "queries.hpp"
 
 #include <chrono>
 #include <coroutine>
