@@ -22,8 +22,8 @@ public:
   struct FinalSuspendAwaiter;
 
   template <class ChildSender, class ResultType>
-  explicit WriteEnvPromise(ChildSender&&, QueryResult&& result,
-                           std::coroutine_handle<AwaitingPromise> parentCoro, ResultType*);
+  WriteEnvPromise(ChildSender&, QueryResult result,
+                  std::coroutine_handle<AwaitingPromise> parentCoro, ResultType*);
 
   auto get_env() const noexcept -> Env;
 
@@ -139,7 +139,7 @@ auto write_env(ChildSender childSender, Query, QueryResult result) noexcept
 template <class Query, class QueryResult, class AwaitingPromise>
 template <class ChildSender, class ResultType>
 WriteEnvPromise<Query, QueryResult, AwaitingPromise>::WriteEnvPromise(
-    ChildSender&&, QueryResult&& result, std::coroutine_handle<AwaitingPromise> parentCoro,
+    ChildSender&, QueryResult result, std::coroutine_handle<AwaitingPromise> parentCoro,
     ResultType*)
     : mResult(std::move(result)), mParentCoro(parentCoro) {}
 
@@ -272,7 +272,7 @@ WriteEnvAwaiter<void>::WriteEnvAwaiter(ChildSender&& childSender, Query, QueryRe
                                        AwaitingPromise& promise) {
   auto awaitingHandle = std::coroutine_handle<AwaitingPromise>::from_promise(promise);
   auto writeEnvTask =
-      [](ChildSender&& childSender, QueryResult&&, std::coroutine_handle<AwaitingPromise>,
+      [](ChildSender&& childSender, QueryResult, std::coroutine_handle<AwaitingPromise>,
          std::exception_ptr* onError) -> WriteEnvTask<Query, QueryResult, AwaitingPromise> {
     try {
       co_await std::move(childSender);

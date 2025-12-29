@@ -98,23 +98,19 @@ auto coro_poll_pipe_read() -> ms::IoTask<void> {
 
 auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
   ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+  std::stop_source stopSource;
+  stopSource.request_stop();
 
   // This should be cancelled and not complete
   try {
-    co_await scheduler.schedule_after(std::chrono::seconds(10));
+    auto schedule = scheduler.schedule_after(std::chrono::seconds(10));
+    auto stoppedSchedule =
+        ms::write_env(std::move(schedule), ms::get_stop_token, stopSource.get_token());
+    co_await std::move(stoppedSchedule);
     co_return false; // Should not reach here
   } catch (...) {
     co_return false; // Should not throw
   }
-}
-
-auto coro_immediate_cancellation() -> ms::IoTask<void> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
-
-  // Schedule an immediate operation
-  co_await scheduler.schedule();
-
-  // If we get here, operation completed successfully
 }
 
 // Test cases
@@ -171,9 +167,9 @@ void test_poll_operation() {
   assert(result);
 }
 
-void test_immediate_operation() {
-  bool result = ms::sync_wait(coro_immediate_cancellation());
-  assert(result);
+void test_cancel_delayed_operation() {
+  auto result = ms::sync_wait(coro_cancel_delayed_operation());
+  assert(!result.has_value());
 }
 
 int main() {
@@ -191,5 +187,7 @@ int main() {
 
   // I/O polling tests
   test_poll_operation();
-  test_immediate_operation();
+
+  // Cancellation tests
+  test_cancel_delayed_operation();
 }

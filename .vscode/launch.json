@@ -11,6 +11,14 @@
             "program": "${workspaceFolder}/build/src/core/tests/test_task",
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_sync_wait",
+            "program": "${workspaceFolder}/build/src/core/tests/test_sync_wait",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     
     ]

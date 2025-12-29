@@ -7,12 +7,13 @@
 
 namespace ms {
 
-
 WriteEnvAwaiter<void>::~WriteEnvAwaiter() {
   if (mHandle) {
     mHandle.destroy();
   }
 }
+
+auto WriteEnvAwaiter<void>::await_ready() noexcept -> std::false_type { return {}; }
 
 auto WriteEnvAwaiter<void>::await_suspend(std::coroutine_handle<>) noexcept
     -> std::coroutine_handle<> {
@@ -25,4 +26,4 @@ auto WriteEnvAwaiter<void>::await_resume() noexcept -> void {
   }
 }
 
-}
+} // namespace ms

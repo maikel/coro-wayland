@@ -60,15 +60,15 @@ template <> struct SyncWaitState<void> {
 
 template <class ValueType> struct SyncWaitTask {
   struct promise_type {
-    promise_type() = default;
-
     explicit promise_type(SyncWaitState<ValueType>* state) : mState(state) {}
 
-    static auto get_return_object() noexcept -> SyncWaitTask { return SyncWaitTask{}; }
+    auto get_return_object() noexcept -> SyncWaitTask {
+      return SyncWaitTask{std::coroutine_handle<promise_type>::from_promise(*this)};
+    }
 
     auto initial_suspend() noexcept -> std::suspend_never { return {}; }
 
-    auto final_suspend() noexcept -> std::suspend_never { return {}; }
+    auto final_suspend() noexcept -> std::suspend_always { return {}; }
 
     void return_value(ValueType value) noexcept {
       std::lock_guard lock(mState->mutex);
@@ -91,18 +91,21 @@ template <class ValueType> struct SyncWaitTask {
 
     SyncWaitState<ValueType>* mState;
   };
+
+  std::coroutine_handle<promise_type> mHandle;
 };
 
 template <> struct SyncWaitTask<void> {
   struct promise_type {
-    promise_type() = default;
     explicit promise_type(SyncWaitState<void>* state) : mState(state) {}
 
-    static auto get_return_object() noexcept -> SyncWaitTask { return SyncWaitTask{}; }
+    auto get_return_object() noexcept -> SyncWaitTask {
+      return SyncWaitTask{std::coroutine_handle<promise_type>::from_promise(*this)};
+    }
 
     auto initial_suspend() noexcept -> std::suspend_never { return {}; }
 
-    auto final_suspend() noexcept -> std::suspend_never { return {}; }
+    auto final_suspend() noexcept -> std::suspend_always { return {}; }
 
     void return_void() noexcept {
       std::lock_guard lock(mState->mutex);
@@ -125,30 +128,18 @@ template <> struct SyncWaitTask<void> {
 
     SyncWaitState<void>* mState;
   };
+  std::coroutine_handle<promise_type> mHandle;
 };
 
-template <class Awaitable>
-  requires(!std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>)
-auto sync_wait(Awaitable&& awaitable) -> std::optional<ms::await_result_t<Awaitable, SyncWaitEnv>> {
+template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
   using ValueType = ms::await_result_t<Awaitable, SyncWaitEnv>;
   IoContext ioContext;
   SyncWaitState<ValueType> state{&ioContext};
-  [&](SyncWaitState<ValueType>*) -> SyncWaitTask<ValueType> {
+  auto task = [&](SyncWaitState<ValueType>*) -> SyncWaitTask<ValueType> {
     co_return co_await static_cast<Awaitable&&>(awaitable);
   }(&state);
   ioContext.run();
-  return state.get_result();
-}
-
-template <class Awaitable>
-  requires std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>
-auto sync_wait(Awaitable&& awaitable) -> bool {
-  IoContext ioContext;
-  SyncWaitState<void> state{&ioContext};
-  [&](SyncWaitState<void>*) -> SyncWaitTask<void> {
-    co_return co_await static_cast<Awaitable&&>(awaitable);
-  }(&state);
-  ioContext.run();
+  task.mHandle.destroy();
   return state.get_result();
 }
 
