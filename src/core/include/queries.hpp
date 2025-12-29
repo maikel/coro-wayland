@@ -34,8 +34,11 @@ struct get_stop_token_t {
 inline constexpr get_stop_token_t get_stop_token{};
 
 struct get_scheduler_t {
-    template <class Env> auto operator()(const Env& env) const noexcept requires requires { env.query(*this); } {
-      return env.query(*this);
+  template <class Env>
+  auto operator()(const Env& env) const noexcept
+    requires requires { env.query(*this); }
+  {
+    return env.query(*this);
   }
 };
 inline constexpr get_scheduler_t get_scheduler{};

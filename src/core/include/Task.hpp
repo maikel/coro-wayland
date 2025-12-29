@@ -4,8 +4,8 @@
 #pragma once
 
 #include "ManualLifetime.hpp"
-#include "queries.hpp"
 #include "concepts.hpp"
+#include "queries.hpp"
 
 #include <coroutine>
 #include <exception>
@@ -72,8 +72,7 @@ private:
 /// TaskAwaiter specialization for type-erased parent promise.
 /// Uses vtable-based dispatch via TaskContext<> for runtime polymorphism.
 /// Used when awaited directly without static parent information.
-template <class Tp, class Traits>
-class TaskAwaiter : public TaskResult<Tp> {
+template <class Tp, class Traits> class TaskAwaiter : public TaskResult<Tp> {
 public:
   TaskAwaiter() = delete;
   TaskAwaiter(const TaskAwaiter&) = delete;
@@ -97,7 +96,7 @@ public:
   auto get_env() const noexcept -> typename Traits::env_type;
   auto get_continuation() -> std::coroutine_handle<>;
 
-  private:
+private:
   std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
   ManualLifetime<typename Traits::context_type> mContext;
 };
@@ -352,8 +351,7 @@ template <class Tp, class Traits> void TaskPromiseBase<Tp, Traits>::unhandled_ex
 /// Connect promise to operation state (awaiter).
 /// Called by awaiter on suspension to establish bidirectional link.
 template <class Tp, class Traits>
-void TaskPromiseBase<Tp, Traits>::set_operation_state(
-    TaskAwaiter<Tp, Traits>* opState) noexcept {
+void TaskPromiseBase<Tp, Traits>::set_operation_state(TaskAwaiter<Tp, Traits>* opState) noexcept {
   mOpState = opState;
 }
 

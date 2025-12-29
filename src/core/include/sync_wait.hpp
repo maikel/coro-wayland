@@ -58,7 +58,6 @@ template <> struct SyncWaitState<void> {
   }
 };
 
-
 template <class ValueType> struct SyncWaitTask {
   struct promise_type {
     promise_type() = default;
@@ -88,9 +87,7 @@ template <class ValueType> struct SyncWaitTask {
       mState->context->request_stop();
     }
 
-    auto get_env() const noexcept -> SyncWaitEnv {
-      return mState->get_env();
-    }
+    auto get_env() const noexcept -> SyncWaitEnv { return mState->get_env(); }
 
     SyncWaitState<ValueType>* mState;
   };
@@ -124,16 +121,14 @@ template <> struct SyncWaitTask<void> {
       mState->context->request_stop();
     }
 
-    auto get_env() const noexcept -> SyncWaitEnv {
-      return mState->get_env();
-    }
+    auto get_env() const noexcept -> SyncWaitEnv { return mState->get_env(); }
 
     SyncWaitState<void>* mState;
   };
 };
 
 template <class Awaitable>
-    requires (!std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>)
+  requires(!std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>)
 auto sync_wait(Awaitable&& awaitable) -> std::optional<ms::await_result_t<Awaitable, SyncWaitEnv>> {
   using ValueType = ms::await_result_t<Awaitable, SyncWaitEnv>;
   IoContext ioContext;
@@ -146,7 +141,7 @@ auto sync_wait(Awaitable&& awaitable) -> std::optional<ms::await_result_t<Awaita
 }
 
 template <class Awaitable>
-    requires std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>
+  requires std::same_as<ms::await_result_t<Awaitable, SyncWaitEnv>, void>
 auto sync_wait(Awaitable&& awaitable) -> bool {
   IoContext ioContext;
   SyncWaitState<void> state{&ioContext};

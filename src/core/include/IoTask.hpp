@@ -49,7 +49,6 @@ inline constexpr IoTaskContextVtable IoTaskContextVtableFor = {
       }
     }};
 
-
 /// Type-erased task context using vtable dispatch.
 /// Stores void* to parent promise with vtable for dynamic operations.
 class IoTaskContextBase {
@@ -99,26 +98,23 @@ struct IoTaskTraits {
   using env_type = IoTaskEnv;
 };
 
-template <class Tp>
-using IoTask = BasicTask<Tp, IoTaskTraits>;
+template <class Tp> using IoTask = BasicTask<Tp, IoTaskTraits>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                                  IoTaskContextBase
 
 template <class AwaitingPromise>
-IoTaskContextBase::IoTaskContextBase(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
-{
-    mVtable = &IoTaskContextVtableFor<AwaitingPromise>;
-    mPromise = static_cast<void*>(&awaitingHandle.promise());
+IoTaskContextBase::IoTaskContextBase(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept {
+  mVtable = &IoTaskContextVtableFor<AwaitingPromise>;
+  mPromise = static_cast<void*>(&awaitingHandle.promise());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                                    IoTaskContext
 
-
 template <class AwaitingPromise>
-IoTaskContext::IoTaskContext(
-    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+IoTaskContext::IoTaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
     : IoTaskContextBase(awaitingHandle) {}
 
 } // namespace ms

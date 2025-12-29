@@ -3,55 +3,40 @@
 
 #pragma once
 
-#include <queries.hpp>
-
 #include <coroutine>
 #include <optional>
+#include <utility>
 
 namespace ms {
 
-template <class Query, class Promise>
-class ReadEnvAwaiter {
+template <class ResultType> class ReadEnvAwaiter {
 private:
-  using ResultType = decltype(std::declval<Query>()(std::declval<env_of_t<Promise>>()));
-
-  [[no_unique_address]] Query mQuery;
-  std::optional<ResultType> mResult;
+  ResultType mResult;
 
 public:
-    explicit ReadEnvAwaiter(Query query) : mQuery(std::move(query)) {}
-    
-    static auto await_ready() noexcept -> std::false_type {
-        return {};
-    }
-    
-    auto await_suspend(std::coroutine_handle<Promise> handle) noexcept {
-        auto env = ms::get_env(handle.promise());
-        mResult.emplace(mQuery(env));
-        return handle;
-    }
-    
-    auto await_resume() noexcept -> ResultType {
-        return mResult.value();
-    }
+  explicit ReadEnvAwaiter(ResultType result) : mResult(std::move(result)) {}
+
+  static auto await_ready() noexcept -> std::true_type { return {}; }
+
+  void await_suspend(std::coroutine_handle<>) noexcept {}
+
+  auto await_resume() noexcept -> ResultType { return mResult; }
 };
 
-template <class Query>
-class ReadEnvSender {
+template <class Query> class ReadEnvSender {
 public:
-    explicit ReadEnvSender(Query query) : mQuery(std::move(query)) {}
-    
-    template <class Promise>
-    auto connect(Promise&) noexcept {
-        return ReadEnvAwaiter<Query, Promise>(mQuery);
-    }
+  explicit ReadEnvSender(Query query) : mQuery(std::move(query)) {}
+
+  template <class Promise> auto connect(Promise& promise) noexcept {
+    return ReadEnvAwaiter{mQuery(::ms::get_env(promise))};
+  }
+
 private:
-    Query mQuery;
+  Query mQuery;
 };
 
-template <class Query>
-auto read_env(Query query) noexcept -> ReadEnvSender<Query> {
-    return ReadEnvSender<Query>(std::move(query));
+template <class Query> auto read_env(Query query) noexcept -> ReadEnvSender<Query> {
+  return ReadEnvSender<Query>(std::move(query));
 }
 
 } // namespace ms

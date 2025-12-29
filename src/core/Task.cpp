@@ -20,9 +20,7 @@ auto TaskResult<void>::get_result() -> void {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details TaskContext<AwaitingPromise>
 
-auto TaskContext::get_env() const noexcept -> TaskEnv {
-  return mVtable->get_env(mPromise);
-}
+auto TaskContext::get_env() const noexcept -> TaskEnv { return mVtable->get_env(mPromise); }
 
 void TaskContext::set_stopped() noexcept { mVtable->set_stopped(mPromise); }
 
@@ -32,8 +30,6 @@ auto TaskContext::get_continuation() const noexcept -> std::coroutine_handle<> {
 
 TaskEnv::TaskEnv(std::stop_token stopToken) noexcept : mStopToken(stopToken) {}
 
-auto TaskEnv::query(get_stop_token_t) const noexcept -> std::stop_token {
-  return mStopToken;
-}
+auto TaskEnv::query(get_stop_token_t) const noexcept -> std::stop_token { return mStopToken; }
 
 } // namespace ms

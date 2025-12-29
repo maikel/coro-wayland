@@ -4,6 +4,7 @@
 #include "IoTask.hpp"
 #include "read_env.hpp"
 #include "sync_wait.hpp"
+#include "write_env.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -51,53 +52,53 @@ auto coro_schedule_at_absolute_time() -> ms::IoTask<void> {
 auto coro_multiple_timers() -> ms::IoTask<std::vector<int>> {
   ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
   std::vector<int> results;
-  
+
   auto t0 = std::chrono::steady_clock::now();
   co_await scheduler.schedule_after(std::chrono::milliseconds(50));
   results.push_back(1);
-  
+
   co_await scheduler.schedule_after(std::chrono::milliseconds(30));
   results.push_back(2);
-  
+
   co_await scheduler.schedule_after(std::chrono::milliseconds(20));
   results.push_back(3);
-  
+
   auto t1 = std::chrono::steady_clock::now();
   assert(t1 - t0 >= std::chrono::milliseconds(100));
-  
+
   co_return results;
 }
 
 auto coro_poll_pipe_read() -> ms::IoTask<void> {
   ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
-  
+
   int pipefd[2];
   assert(pipe(pipefd) == 0);
-  
+
   // Make read end non-blocking
   int flags = fcntl(pipefd[0], F_GETFL, 0);
   fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
-  
+
   // Write data to pipe
   const char data[] = "test";
   write(pipefd[1], data, sizeof(data));
-  
+
   // Poll for read availability
   short events = co_await scheduler.poll(pipefd[0], POLLIN);
   assert(events & POLLIN);
-  
+
   // Read the data
   char buffer[10];
   ssize_t n = read(pipefd[0], buffer, sizeof(buffer));
   assert(n == sizeof(data));
-  
+
   close(pipefd[0]);
   close(pipefd[1]);
 }
 
 auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
   ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
-  
+
   // This should be cancelled and not complete
   try {
     co_await scheduler.schedule_after(std::chrono::seconds(10));
@@ -109,10 +110,10 @@ auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
 
 auto coro_immediate_cancellation() -> ms::IoTask<void> {
   ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
-  
+
   // Schedule an immediate operation
   co_await scheduler.schedule();
-  
+
   // If we get here, operation completed successfully
 }
 
@@ -181,13 +182,13 @@ int main() {
   test_sync_wait_with_void_result();
   test_sync_wait_with_io_task();
   test_sync_wait_with_read_env();
-  
+
   // IoContext scheduling tests
   test_immediate_schedule();
   test_sync_wait_with_delayed_schedule();
   test_absolute_time_schedule();
   test_multiple_sequential_timers();
-  
+
   // I/O polling tests
   test_poll_operation();
   test_immediate_operation();
