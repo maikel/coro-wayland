@@ -1,0 +1,4 @@
+add_executable(test_jinja_template_engine test_jinja_template_engine.cpp)
+target_link_libraries(test_jinja_template_engine MusicStreamer::JinjaTemplateEngine)
+
+add_test(test_jinja_template_engine test_jinja_template_engine)

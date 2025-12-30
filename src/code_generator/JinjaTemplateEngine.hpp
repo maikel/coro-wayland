@@ -14,27 +14,32 @@
 
 namespace ms {
 
+class JinjaContext;
+
+using JinjaObject = std::map<std::string, JinjaContext>;
+using JinjaArray = std::vector<JinjaContext>;
+
 class JinjaContext {
 public:
   explicit JinjaContext(const std::string& string);
-  explicit JinjaContext(const std::map<std::string, JinjaContext>& object);
-  explicit JinjaContext(const std::vector<JinjaContext>& array);
+  explicit JinjaContext(const JinjaObject& object);
+  explicit JinjaContext(const JinjaArray& array);
 
   auto isString() const noexcept -> bool;
   auto isObject() const noexcept -> bool;
   auto isArray() const noexcept -> bool;
 
   auto asString() const -> const std::string&;
-  auto asObject() const -> const std::map<std::string, JinjaContext>&;
-  auto asArray() const -> const std::vector<JinjaContext>&;
+  auto asObject() const -> const JinjaObject&;
+  auto asArray() const -> const JinjaArray&;
 
   friend bool operator==(const JinjaContext&, const JinjaContext&) = default;
 
 private:
-  using StorageType = std::variant<        //
-      std::string,                         //
-      std::map<std::string, JinjaContext>, //
-      std::vector<JinjaContext>>;
+  using StorageType = std::variant< //
+      std::string,                  //
+      JinjaObject,                  //
+      JinjaArray>;
 
   StorageType mStorage;
 };
