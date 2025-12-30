@@ -48,8 +48,24 @@ void test_if_else_statement() {
   assert(outputFalse.str() == "Please sign up.");
 }
 
+void test_for_loop_statement() {
+  const std::string templateContent = "Items:{% for item in items %} {{ item }}{% endfor %}";
+  ms::TemplateDocument document = ms::make_document(templateContent);
+
+  ms::JinjaContext context{ms::JinjaObject{
+      {"items",
+       ms::JinjaContext(ms::JinjaArray{ms::JinjaContext("Apple"), ms::JinjaContext("Banana"),
+                                       ms::JinjaContext("Cherry")})}}};
+
+  std::ostringstream output;
+  document.render(context, output);
+
+  assert(output.str() == "Items: Apple Banana Cherry");
+}
+
 int main() {
   test_substitution_hello_world();
   test_substitution_nested_object();
   test_if_else_statement();
+  test_for_loop_statement();
 }

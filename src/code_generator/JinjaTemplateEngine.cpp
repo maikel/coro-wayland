@@ -420,11 +420,20 @@ auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
   if (index == tokens.size()) {
     throw std::runtime_error("Expected 'endfor' for 'for' block");
   }
-  std::span<const Token> forBodyTokens = tokens.subspan(0, index);
+  assert(index > 0); // There should be at least one token between For and EndFor
+  assert(tokens[index].type == Token::Type::EndFor);
+  if (tokens[index - 1].type != Token::Type::BlockStart) {
+    throw std::runtime_error("Expected block start before 'endfor'");
+  }
+  if (index + 1 >= tokens.size() || tokens[index + 1].type != Token::Type::BlockEnd) {
+    throw std::runtime_error("Expected block end after 'endfor'");
+  }
+  std::span<const Token> forBodyTokens =
+      tokens.subspan(0, index - 1); // Exclude BlockStart before EndFor
   TemplateDocument body = make_document(forBodyTokens);
   return ParserResult{
-      TemplateDocument{ForEachNode{loopVar, itemVar, body}},
-      tokens.subspan(index + 1) // Skip past EndFor
+      TemplateDocument{ForEachNode{loopVar, itemVar, std::move(body)}},
+      tokens.subspan(index + 2) // Skip past EndFor and BlockEnd
   };
 }
 
