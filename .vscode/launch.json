@@ -7,6 +7,14 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Launch Code Generator",
+            "program": "${workspaceFolder}/build/src/code_generator/MusicStreamerCodeGenerator",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Launch test_task",
             "program": "${workspaceFolder}/build/src/core/tests/test_task",
             "args": [],
