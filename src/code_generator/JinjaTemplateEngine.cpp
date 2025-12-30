@@ -3,6 +3,8 @@
 
 #include "JinjaTemplateEngine.hpp"
 
+#include <span>
+
 namespace ms {
 
 JinjaContext::JinjaContext(const std::string& string) : mStorage(string) {}
@@ -25,6 +27,12 @@ auto JinjaContext::asObject() const -> const std::map<std::string, JinjaContext>
 
 auto JinjaContext::asArray() const -> const std::vector<JinjaContext>& {
   return std::get<2>(mStorage);
+}
+
+void TemplateDocument::render(const JinjaContext& context, std::ostream& out) const {
+  if (mRenderFunc) {
+    mRenderFunc(mDocument, context, out);
+  }
 }
 
 namespace {
@@ -55,30 +63,100 @@ struct Lexer {
   auto tokenize() -> std::vector<Token> {
     std::vector<Token> tokens;
     // Lexer implementation would go here
+    tokens.push_back(Token{Token::Type::EndOfFile, ""});
     return tokens;
   }
 };
 
-auto tokenize(std::string_view templateContent) -> std::vector<Token> { 
-    Lexer lexer{templateContent, 0};
-    return lexer.tokenize();
+auto tokenize(std::string_view templateContent) -> std::vector<Token> {
+  Lexer lexer{templateContent, 0};
+  return lexer.tokenize();
 }
 
 struct TextDocument {
   std::string_view content;
 
-  void render(const JinjaContext& /* context */, std::ostream& out) const {
-    out << content;
+  void render(const JinjaContext& /* context */, std::ostream& out) const { out << content; }
+};
+
+struct EmptyDocument {
+  void render(const JinjaContext& /* context */, std::ostream& /* out */) const {
+    // Do nothing
   }
 };
 
+struct MultipleDocuments {
+  std::vector<TemplateDocument> documents;
+
+  void render(const JinjaContext& context, std::ostream& out) const {
+    for (const auto& doc : documents) {
+      doc.render(context, out);
+    }
+  }
+};
+
+struct ParserResult {
+  TemplateDocument document;
+  std::span<const Token> remainingTokens;
+};
+
+auto parse_block(std::span<const Token> tokens) -> ParserResult {
+  // Parsing implementation would go here
+  return ParserResult{TemplateDocument{EmptyDocument{}}, tokens};
+}
+
+auto parse_substitution(std::span<const Token> tokens) -> ParserResult {
+  // Parsing implementation would go here
+  return ParserResult{TemplateDocument{EmptyDocument{}}, tokens};
+}
+
+auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
+  if (tokens.empty()) {
+    return ParserResult{TemplateDocument{EmptyDocument{}}, tokens};
+  }
+  switch (tokens[0].type) {
+  case Token::Type::Text:
+    return ParserResult{TemplateDocument{TextDocument{tokens[0].value}}, tokens.subspan(1)};
+  case Token::Type::VariableStart:
+    return parse_substitution(tokens);
+  case Token::Type::BlockStart:
+    return parse_block(tokens);
+  case Token::Type::EndOfFile:
+    return ParserResult{TemplateDocument{EmptyDocument{}}, tokens};
+  case Token::Type::VariableEnd:
+    [[fallthrough]];
+  case Token::Type::BlockEnd:
+    [[fallthrough]];
+  case Token::Type::If:
+    [[fallthrough]];
+  case Token::Type::EndIf:
+    [[fallthrough]];
+  case Token::Type::For:
+    [[fallthrough]];
+  case Token::Type::EndFor:
+    [[fallthrough]];
+  case Token::Type::In:
+    [[fallthrough]];
+  case Token::Type::Identifier:
+    [[fallthrough]];
+  case Token::Type::StringLiteral:
+    throw std::runtime_error("Unexpected token type in template");
+  }
+
+  throw std::runtime_error("Unsupported token type in template");
+}
+
 } // namespace
 
-auto make_document(std::string_view templateContent) -> TemplateDocument
-{
-    [[maybe_unused]] auto tokens = tokenize(templateContent);
-    TextDocument doc{templateContent};
-    return TemplateDocument{doc};
+auto make_document(std::string_view templateContent) -> TemplateDocument {
+  [[maybe_unused]] auto tokens = tokenize(templateContent);
+  std::vector<TemplateDocument> documents;
+  ParserResult result = parse_next_document(tokens);
+  while (!result.remainingTokens.empty()) {
+    documents.push_back(std::move(result.document));
+    result = parse_next_document(result.remainingTokens);
+  }
+  return TemplateDocument{MultipleDocuments{documents}};
 }
 
 } // namespace ms

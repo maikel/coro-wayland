@@ -40,11 +40,11 @@ private:
 };
 
 template <class Document>
-inline constexpr auto render_implementation = +[](
-    const std::any& docAny, const JinjaContext& context, std::ostream& out) {
-  const Document& doc = std::any_cast<const Document&>(docAny);
-  doc.render(context, out);
-};
+inline constexpr auto render_implementation =
+    +[](const std::any& docAny, const JinjaContext& context, std::ostream& out) {
+      const Document& doc = std::any_cast<const Document&>(docAny);
+      doc.render(context, out);
+    };
 
 struct TemplateDocument {
   TemplateDocument() = default;
@@ -54,10 +54,11 @@ struct TemplateDocument {
   TemplateDocument& operator=(TemplateDocument&&) noexcept = default;
   ~TemplateDocument() = default;
 
-  template <std::copyable Document>
-  requires requires (const Document& doc, const JinjaContext& ctx, std::ostream& out) {
-    { doc.render(ctx, out) } -> std::same_as<void>;
-  }
+  template <class Document>
+    requires(!std::same_as<Document, TemplateDocument>) &&
+            requires(const Document& doc, const JinjaContext& ctx, std::ostream& out) {
+              { doc.render(ctx, out) } -> std::same_as<void>;
+            }
   explicit TemplateDocument(Document doc);
 
   void render(const JinjaContext& context, std::ostream& out) const;
@@ -69,10 +70,11 @@ private:
 
 auto make_document(std::string_view templateContent) -> TemplateDocument;
 
-template <std::copyable Document>
-requires requires (const Document& doc, const JinjaContext& ctx, std::ostream& out) {
-  { doc.render(ctx, out) } -> std::same_as<void>;
-}
+template <class Document>
+  requires(!std::same_as<Document, TemplateDocument>) &&
+              requires(const Document& doc, const JinjaContext& ctx, std::ostream& out) {
+                { doc.render(ctx, out) } -> std::same_as<void>;
+              }
 TemplateDocument::TemplateDocument(Document doc)
     : mDocument(std::move(doc)), mRenderFunc(render_implementation<Document>) {}
 
