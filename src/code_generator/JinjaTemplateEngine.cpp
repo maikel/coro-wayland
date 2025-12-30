@@ -3,6 +3,9 @@
 
 #include "JinjaTemplateEngine.hpp"
 
+#include <algorithm>
+#include <cassert>
+#include <stdexcept>
 #include <span>
 
 namespace ms {
@@ -73,7 +76,7 @@ auto tokenize(std::string_view templateContent) -> std::vector<Token> {
   return lexer.tokenize();
 }
 
-struct TextDocument {
+struct TextNode {
   std::string_view content;
 
   void render(const JinjaContext& /* context */, std::ostream& out) const { out << content; }
@@ -85,7 +88,25 @@ struct EmptyDocument {
   }
 };
 
-struct MultipleDocuments {
+struct SubstitutionNode {
+    std::string_view variableName;
+
+    void render(const JinjaContext& context, std::ostream& out) const {
+        if (context.isObject()) {
+            const auto& obj = context.asObject();
+            auto it = obj.find(std::string(variableName));
+            if (it == obj.end()) {
+                throw std::runtime_error("Variable '" + std::string(variableName) + "' not found in context");
+            }
+            if (!it->second.isString()) {
+                throw std::runtime_error("Variable '" + std::string(variableName) + "' is not a string");
+            }
+            out << it->second.asString();
+        }
+    }
+};
+
+struct MultipleNodes {
   std::vector<TemplateDocument> documents;
 
   void render(const JinjaContext& context, std::ostream& out) const {
@@ -106,8 +127,17 @@ auto parse_block(std::span<const Token> tokens) -> ParserResult {
 }
 
 auto parse_substitution(std::span<const Token> tokens) -> ParserResult {
-  // Parsing implementation would go here
-  return ParserResult{TemplateDocument{EmptyDocument{}}, tokens};
+  assert(tokens[0].type == Token::Type::VariableStart);
+  if (tokens.size() < 3) {
+    throw std::runtime_error("Unexpected end of tokens in substitution");
+  }
+  if (tokens[1].type != Token::Type::Identifier) {
+    throw std::runtime_error("Expected identifier in substitution");
+  }
+  if (tokens[2].type != Token::Type::VariableEnd) {
+    throw std::runtime_error("Expected variable end token in substitution");
+  }
+  return ParserResult{TemplateDocument{SubstitutionNode{tokens[1].value}}, tokens.subspan(3)};
 }
 
 auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
@@ -116,7 +146,7 @@ auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
   }
   switch (tokens[0].type) {
   case Token::Type::Text:
-    return ParserResult{TemplateDocument{TextDocument{tokens[0].value}}, tokens.subspan(1)};
+    return ParserResult{TemplateDocument{TextNode{tokens[0].value}}, tokens.subspan(1)};
   case Token::Type::VariableStart:
     return parse_substitution(tokens);
   case Token::Type::BlockStart:
@@ -156,7 +186,7 @@ auto make_document(std::string_view templateContent) -> TemplateDocument {
     documents.push_back(std::move(result.document));
     result = parse_next_document(result.remainingTokens);
   }
-  return TemplateDocument{MultipleDocuments{documents}};
+  return TemplateDocument{MultipleNodes{documents}};
 }
 
 } // namespace ms
