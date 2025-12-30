@@ -27,15 +27,16 @@ auto read_full_file(std::filesystem::path file) -> std::string;
 auto make_path_to_generated_file(std::filesystem::path templatePath, const ProgramOptions& options)
     -> std::filesystem::path;
 
-void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix = "");
+// void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix =
+// "");
 
 } // namespace ms
 
 int main(int argc, char** argv) {
   const ms::ProgramOptions programOptions = ms::parse_command_line_args(argc, argv);
   const std::string waylandContent = ms::read_full_file(programOptions.pathToWaylandXml);
-  ms::JinjaContext context = ms::parse_wayland_xml(waylandContent);
-  print_context(context, std::cout, "interfaces");
+  ms::XmlTag protocol = ms::parse_wayland_xml(waylandContent);
+  // print_context(context, std::cout, "interfaces");
   // auto templates = ms::find_all_template_files(programOptions.templateDirectory);
   // for (auto templatePath : templates) {
   //   const std::string templateContent = ms::read_full_file(templatePath);
@@ -107,24 +108,24 @@ auto getName(const std::map<std::string, ms::JinjaContext>& object) -> std::stri
   return {};
 }
 
-void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix)
-{
-  if (context.isString()) {
-    out << prefix << " = " << context.asString() << "\n";
-  } else if (context.isObject()) {
-    const std::string name = prefix + "." + getName(context.asObject());
-    // out << "Object " << name << ":\n";
-    for (const auto& [key, value] : context.asObject()) {
-      print_context(value, out, name + "." + key);
-    }
-  } else if (context.isArray()) {
-    // out << "Array " << prefix << ":\n";
-    int index = 0;
-    for (const auto& item : context.asArray()) {
-      print_context(item, out, prefix + "[" + std::to_string(index) + "]");
-      ++index;
-    }
-  }
-}
+// void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix)
+// {
+//   if (context.isString()) {
+//     out << prefix << " = " << context.asString() << "\n";
+//   } else if (context.isObject()) {
+//     const std::string name = prefix + "." + getName(context.asObject());
+//     // out << "Object " << name << ":\n";
+//     for (const auto& [key, value] : context.asObject()) {
+//       print_context(value, out, name + "." + key);
+//     }
+//   } else if (context.isArray()) {
+//     // out << "Array " << prefix << ":\n";
+//     int index = 0;
+//     for (const auto& item : context.asArray()) {
+//       print_context(item, out, prefix + "[" + std::to_string(index) + "]");
+//       ++index;
+//     }
+//   }
+// }
 
 } // namespace ms

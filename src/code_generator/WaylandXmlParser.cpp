@@ -86,82 +86,74 @@ struct Lexer {
     skip_whitespace();
     std::string_view remaining = mInput.substr(mPosition);
     while (!remaining.empty()) {
-        if (!mInTag) {
-            if (remaining.starts_with("<?")) {
-                // Skip XML declaration
-                std::size_t declEnd = remaining.find("?>");
-                if (declEnd == std::string_view::npos) {
-                    throw std::runtime_error("Unterminated XML declaration");
-                }
-                mPosition += declEnd + 2;
-            } else if (remaining.starts_with("<!--")) {
-                // Skip comments
-                std::size_t commentEnd = remaining.find("-->");
-                if (commentEnd == std::string_view::npos) {
-                    throw std::runtime_error("Unterminated XML comment");
-                }
-                mPosition += commentEnd + 3; 
-            } else if (remaining.starts_with("</")) {
-                mInTag = true;
-                tokens.push_back(Token{Token::Type::OpenCloseTag, "</"});
-                mPosition += 2;
-            } else if (remaining.starts_with("<")) {
-                mInTag = true;
-                tokens.push_back(Token{Token::Type::OpenTag, "<"});
-                mPosition += 1;
-            } else {
-                std::size_t textEnd = remaining.find('<');
-                if (textEnd == std::string_view::npos) {
-                    textEnd = remaining.size();
-                }
-                tokens.push_back(Token{Token::Type::Text, remaining.substr(0, textEnd)});
-                mPosition += textEnd;
-            }
+      if (!mInTag) {
+        if (remaining.starts_with("<?")) {
+          // Skip XML declaration
+          std::size_t declEnd = remaining.find("?>");
+          if (declEnd == std::string_view::npos) {
+            throw std::runtime_error("Unterminated XML declaration");
+          }
+          mPosition += declEnd + 2;
+        } else if (remaining.starts_with("<!--")) {
+          // Skip comments
+          std::size_t commentEnd = remaining.find("-->");
+          if (commentEnd == std::string_view::npos) {
+            throw std::runtime_error("Unterminated XML comment");
+          }
+          mPosition += commentEnd + 3;
+        } else if (remaining.starts_with("</")) {
+          mInTag = true;
+          tokens.push_back(Token{Token::Type::OpenCloseTag, "</"});
+          mPosition += 2;
+        } else if (remaining.starts_with("<")) {
+          mInTag = true;
+          tokens.push_back(Token{Token::Type::OpenTag, "<"});
+          mPosition += 1;
         } else {
-            if (remaining.starts_with("/>")) {
-                tokens.push_back(Token{Token::Type::SelfClose, "/>"});
-                mPosition += 2;
-                mInTag = false;
-            } else if (remaining.starts_with(">")) {
-                tokens.push_back(Token{Token::Type::CloseTag, ">"});
-                mPosition += 1;
-                mInTag = false;
-            } else if (remaining.starts_with("</")) {
-                throw std::runtime_error("Unexpected '</' inside tag");
-            } else {
-                remaining = mInput.substr(mPosition);
-                std::size_t nameEnd = remaining.find_first_of(" />");
-                if (nameEnd == std::string_view::npos) {
-                    nameEnd = remaining.size();
-                }
-                std::string_view name = remaining.substr(0, nameEnd);
-                if (!name.empty()) {
-                    tokens.push_back(Token{Token::Type::TagName, name});
-                    mPosition += nameEnd;
-                }
-                add_attribute_tokens(tokens);
-            }
+          std::size_t textEnd = remaining.find('<');
+          if (textEnd == std::string_view::npos) {
+            textEnd = remaining.size();
+          }
+          tokens.push_back(Token{Token::Type::Text, remaining.substr(0, textEnd)});
+          mPosition += textEnd;
         }
-        skip_whitespace();
-        remaining = mInput.substr(mPosition);
+      } else {
+        if (remaining.starts_with("/>")) {
+          tokens.push_back(Token{Token::Type::SelfClose, "/>"});
+          mPosition += 2;
+          mInTag = false;
+        } else if (remaining.starts_with(">")) {
+          tokens.push_back(Token{Token::Type::CloseTag, ">"});
+          mPosition += 1;
+          mInTag = false;
+        } else if (remaining.starts_with("</")) {
+          throw std::runtime_error("Unexpected '</' inside tag");
+        } else {
+          remaining = mInput.substr(mPosition);
+          std::size_t nameEnd = remaining.find_first_of(" />");
+          if (nameEnd == std::string_view::npos) {
+            nameEnd = remaining.size();
+          }
+          std::string_view name = remaining.substr(0, nameEnd);
+          if (!name.empty()) {
+            tokens.push_back(Token{Token::Type::TagName, name});
+            mPosition += nameEnd;
+          }
+          add_attribute_tokens(tokens);
+        }
+      }
+      skip_whitespace();
+      remaining = mInput.substr(mPosition);
     }
     tokens.push_back(Token{Token::Type::Eof, ""});
     return tokens;
   }
 };
 
-auto tokenize(std::string_view xmlContent) -> std::vector<Token>
-{
-    Lexer lexer{xmlContent, 0};
-    return lexer.tokenize();
+auto tokenize(std::string_view xmlContent) -> std::vector<Token> {
+  Lexer lexer{xmlContent, 0};
+  return lexer.tokenize();
 }
-
-struct XmlNode {
-  std::string name;
-  std::vector<std::pair<std::string, std::string>> attributes;
-  std::vector<XmlNode> children;
-  std::string text;
-};
 
 auto parse_tag(std::span<const Token> tokens) -> std::span<const Token> {
   if (tokens.empty()) {
@@ -201,11 +193,12 @@ auto parse_tag(std::span<const Token> tokens) -> std::span<const Token> {
 }
 
 struct ParseXmlResult {
-  XmlNode root;
+  XmlTag root;
   std::span<const Token> remainingTokens;
 };
-auto parse_xml_node(std::span<const Token> tokens) -> ParseXmlResult {
-  XmlNode root;
+
+auto parse_xml_tag(std::span<const Token> tokens) -> ParseXmlResult {
+  XmlTag root;
   auto tag = parse_tag(tokens);
   root.name = tag[1].value;
   for (std::size_t i = 2; i < tag.size(); ++i) {
@@ -223,11 +216,11 @@ auto parse_xml_node(std::span<const Token> tokens) -> ParseXmlResult {
   }
   while (!tokens.empty() && tokens[0].type != Token::Type::OpenCloseTag) {
     if (tokens[0].type == Token::Type::OpenTag) {
-      ParseXmlResult child = parse_xml_node(tokens);
-      root.children.push_back(std::move(child.root));
+      ParseXmlResult child = parse_xml_tag(tokens);
+      root.children.emplace_back(std::move(child.root));
       tokens = child.remainingTokens;
     } else if (tokens[0].type == Token::Type::Text) {
-      root.text += std::string(tokens[0].value);
+      root.children.emplace_back(std::string(tokens[0].value));
       tokens = tokens.subspan(1);
     } else {
       throw std::runtime_error("Unexpected token type while parsing XML");
@@ -246,62 +239,71 @@ auto parse_xml_node(std::span<const Token> tokens) -> ParseXmlResult {
   return ParseXmlResult{root, tokens};
 }
 
-auto getChildrenArray(const XmlNode& parent, const std::string& childName)
-    -> std::vector<JinjaContext> {
-  std::vector<JinjaContext> children;
-  for (const XmlNode& child : parent.children) {
-    if (child.name != childName) {
-      continue;
-    }
-    std::map<std::string, JinjaContext> childContext;
-    for (const auto& [name, value] : child.attributes) {
-      childContext.emplace(name, JinjaContext(value));
-    }
-    std::vector<JinjaContext> argsContext = getChildrenArray(child, "arg");
-    if (!argsContext.empty()) {
-      childContext.emplace("args", JinjaContext(argsContext));
-    }
-    std::string name = childContext.at("name").asString();
-    children.push_back(JinjaContext(childContext));
-  }
-  return children;
-}
+// auto getChildrenArray(const XmlNode& parent, const std::string& childName)
+//     -> std::vector<JinjaContext> {
+//   std::vector<JinjaContext> children;
+//   for (const XmlNode& child : parent.children) {
+//     if (child.name != childName) {
+//       continue;
+//     }
+//     std::map<std::string, JinjaContext> childContext;
+//     for (const auto& [name, value] : child.attributes) {
+//       childContext.emplace(name, JinjaContext(value));
+//     }
+//     std::vector<JinjaContext> argsContext = getChildrenArray(child, "arg");
+//     if (!argsContext.empty()) {
+//       childContext.emplace("args", JinjaContext(argsContext));
+//     }
+//     std::string name = childContext.at("name").asString();
+//     children.push_back(JinjaContext(childContext));
+//   }
+//   return children;
+// }
 
 } // namespace
 
-auto parse_wayland_xml(std::string_view xmlContent) -> JinjaContext {
+auto parse_wayland_xml(std::string_view xmlContent) -> XmlTag {
   auto tokens = tokenize(xmlContent);
-  std::vector<JinjaContext> interfaces;
-  XmlNode root = parse_xml_node(std::span<const Token>(tokens.data(), tokens.size())).root;
-  if (root.name != "protocol") {
-    throw std::runtime_error("Expected root element to be <protocol>");
-  }
-  for (const auto& child : root.children) {
-    if (child.name != "interface") {
-      continue;
-    }
-    const XmlNode& interfaceNode = child;
-    std::map<std::string, JinjaContext> interfaceContext;
-    for (const auto& [name, value] : interfaceNode.attributes) {
-      interfaceContext.emplace(name, JinjaContext(value));
-    }
-    std::vector<JinjaContext> requestsContext = getChildrenArray(interfaceNode, "request");
-    if (!requestsContext.empty()) {
-      interfaceContext.emplace("requests", JinjaContext(requestsContext));
-    }
-    std::vector<JinjaContext> eventsContext = getChildrenArray(interfaceNode, "event");
-    if (!eventsContext.empty()) {
-      interfaceContext.emplace("events", JinjaContext(eventsContext));
-    }
-    std::vector<JinjaContext> enumsContext = getChildrenArray(interfaceNode, "enum");
-    if (!enumsContext.empty()) {
-      interfaceContext.emplace("enums", JinjaContext(enumsContext));
-    }
-    std::string name = interfaceContext.at("name").asString();
-    interfaces.push_back(JinjaContext(interfaceContext));
-  }
-  JinjaContext context{interfaces};
-  return context;
+  XmlTag root = parse_xml_tag(std::span<const Token>(tokens.data(), tokens.size())).root;
+  return root;
+  // if (root.name != "protocol") {
+  //   throw std::runtime_error("Expected root element to be <protocol>");
+  // }
+  // for (const auto& child : root.children) {
+  //   if (child.name != "interface") {
+  //     continue;
+  //   }
+  //   const XmlNode& interfaceNode = child;
+  //   std::map<std::string, JinjaContext> interfaceContext;
+  //   for (const auto& [name, value] : interfaceNode.attributes) {
+  //     interfaceContext.emplace(name, JinjaContext(value));
+  //   }
+  //   std::vector<JinjaContext> requestsContext = getChildrenArray(interfaceNode, "request");
+  //   if (!requestsContext.empty()) {
+  //     interfaceContext.emplace("requests", JinjaContext(requestsContext));
+  //   }
+  //   std::vector<JinjaContext> eventsContext = getChildrenArray(interfaceNode, "event");
+  //   if (!eventsContext.empty()) {
+  //     interfaceContext.emplace("events", JinjaContext(eventsContext));
+  //   }
+  //   std::vector<JinjaContext> enumsContext = getChildrenArray(interfaceNode, "enum");
+  //   if (!enumsContext.empty()) {
+  //     interfaceContext.emplace("enums", JinjaContext(enumsContext));
+  //   }
+  //   std::string name = interfaceContext.at("name").asString();
+  //   interfaces.push_back(JinjaContext(interfaceContext));
+  // }
+  // JinjaContext context{interfaces};
+  // return context;
 }
+
+XmlNode::XmlNode(const std::string& text) : mStorage(text) {}
+XmlNode::XmlNode(const XmlTag& tag) : mStorage(tag) {}
+
+auto XmlNode::isText() const noexcept -> bool { return mStorage.index() == 0; }
+auto XmlNode::isTag() const noexcept -> bool { return mStorage.index() == 1; }
+
+auto XmlNode::asText() const -> const std::string& { return std::get<0>(mStorage); }
+auto XmlNode::asTag() const -> const XmlTag& { return std::get<1>(mStorage); }
 
 } // namespace ms

@@ -3,8 +3,10 @@
 
 #pragma once
 
-#include <ostream>
+#include <any>
+#include <concepts>
 #include <map>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -29,10 +31,49 @@ public:
   friend bool operator==(const JinjaContext&, const JinjaContext&) = default;
 
 private:
-  std::variant<std::string, std::map<std::string, JinjaContext>, std::vector<JinjaContext>> mStorage;
+  using StorageType = std::variant<        //
+      std::string,                         //
+      std::map<std::string, JinjaContext>, //
+      std::vector<JinjaContext>>;
+
+  StorageType mStorage;
 };
 
-void generate_from_template(const JinjaContext& context, std::string_view templateContent,
-                            std::ostream& out);
+template <class Document>
+inline constexpr auto render_implementation = +[](
+    const std::any& docAny, const JinjaContext& context, std::ostream& out) {
+  const Document& doc = std::any_cast<const Document&>(docAny);
+  doc.render(context, out);
+};
+
+struct TemplateDocument {
+  TemplateDocument() = default;
+  TemplateDocument(const TemplateDocument&) = default;
+  TemplateDocument(TemplateDocument&&) noexcept = default;
+  TemplateDocument& operator=(const TemplateDocument&) = default;
+  TemplateDocument& operator=(TemplateDocument&&) noexcept = default;
+  ~TemplateDocument() = default;
+
+  template <std::copyable Document>
+  requires requires (const Document& doc, const JinjaContext& ctx, std::ostream& out) {
+    { doc.render(ctx, out) } -> std::same_as<void>;
+  }
+  explicit TemplateDocument(Document doc);
+
+  void render(const JinjaContext& context, std::ostream& out) const;
+
+private:
+  std::any mDocument;
+  void (*mRenderFunc)(const std::any&, const JinjaContext&, std::ostream&);
+};
+
+auto make_document(std::string_view templateContent) -> TemplateDocument;
+
+template <std::copyable Document>
+requires requires (const Document& doc, const JinjaContext& ctx, std::ostream& out) {
+  { doc.render(ctx, out) } -> std::same_as<void>;
+}
+TemplateDocument::TemplateDocument(Document doc)
+    : mDocument(std::move(doc)), mRenderFunc(render_implementation<Document>) {}
 
 } // namespace ms
