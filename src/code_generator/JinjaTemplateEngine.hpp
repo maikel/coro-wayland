@@ -73,7 +73,7 @@ private:
   void (*mRenderFunc)(const std::any&, const JinjaContext&, std::ostream&);
 };
 
-auto make_document(std::string_view templateContent) -> TemplateDocument;
+auto make_document(std::string_view templateContent, const std::string& templateName = "") -> TemplateDocument;
 
 template <class Document>
   requires(!std::same_as<Document, TemplateDocument>) &&

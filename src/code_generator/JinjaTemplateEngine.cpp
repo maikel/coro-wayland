@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <format>
 #include <span>
 #include <stdexcept>
 
@@ -38,7 +39,27 @@ void TemplateDocument::render(const JinjaContext& context, std::ostream& out) co
   }
 }
 
+
 namespace {
+
+struct Location {
+    std::size_t line;
+    std::size_t column;
+};
+
+class TemplateError : public std::runtime_error {
+public:
+  TemplateError(const std::string& message, Location location, Location endLocation = Location{});
+
+  auto location() const noexcept -> Location;
+  auto format_message(std::string_view templateName, std::string_view content) const -> std::string;
+
+private:
+  Location mLocationStart;
+  Location mLocationEnd;
+  std::string mMessage;
+};
+
 struct Token {
   enum class Type {
     Text,          // Plain text
@@ -53,11 +74,11 @@ struct Token {
     EndFor,        // endfor
     In,            // in
     Identifier,
-    StringLiteral,
     EndOfFile
   };
   Type type;
   std::string_view value;
+  Location location;
 };
 
 auto make_document(std::span<const Token> tokens) -> TemplateDocument;
@@ -65,10 +86,26 @@ auto make_document(std::span<const Token> tokens) -> TemplateDocument;
 struct Lexer {
   std::string_view mInput;
   std::size_t mPosition = 0;
+  std::size_t mLine = 1;
+  std::size_t mColumn = 1;
+
+  void advance(std::size_t count = 1) {
+    for (std::size_t i = 0; i < count; ++i) {
+      if (mPosition < mInput.size()) {
+        if (mInput[mPosition] == '\n') {
+          ++mLine;
+          mColumn = 1;
+        } else {
+          ++mColumn;
+        }
+        ++mPosition;
+      }
+    }
+  }
 
   void skip_whitespace() {
     while (mPosition < mInput.size() && std::isspace(mInput[mPosition])) {
-      ++mPosition;
+      advance();
     }
   }
 
@@ -79,69 +116,79 @@ struct Lexer {
   static constexpr std::string_view endforLiteral = "endfor";
   static constexpr std::string_view inLiteral = "in";
 
+  auto makeToken(Token::Type type, std::string_view value) -> Token {
+    return Token{type, value, Location{mLine, mColumn}};
+  }
+
+  auto location() const noexcept -> Location {
+    return Location{mLine, mColumn};
+  }
+
   auto tokenize() -> std::vector<Token> {
     std::vector<Token> tokens;
     while (mPosition < mInput.size()) {
       if (mInput.substr(mPosition).starts_with("{{")) {
-        tokens.push_back(Token{Token::Type::VariableStart, "{{"});
-        mPosition += 2;
+        const Location varStartLocation = location();
+        tokens.push_back(makeToken(Token::Type::VariableStart, "{{"));
+        advance(2);
         skip_whitespace();
         std::string_view remaining = mInput.substr(mPosition);
         std::size_t nameEnd = remaining.find_first_of(" \t\r}");
         if (nameEnd == std::string_view::npos) {
-          throw std::runtime_error("Unterminated variable substitution");
+          throw TemplateError("Unterminated variable substitution", varStartLocation);
         }
         std::string_view name = remaining.substr(0, nameEnd);
-        tokens.push_back(Token{Token::Type::Identifier, name});
+        tokens.push_back(makeToken(Token::Type::Identifier, name));
         mPosition += nameEnd;
         skip_whitespace();
         if (mInput.substr(mPosition).starts_with("}}")) {
-          tokens.push_back(Token{Token::Type::VariableEnd, "}}"});
-          mPosition += 2;
+          tokens.push_back(makeToken(Token::Type::VariableEnd, "}}"));
+          advance(2);
         } else {
-          throw std::runtime_error("Expected '}}' at the end of variable substitution");
+          throw TemplateError("Expected '}}' at the end of variable substitution", varStartLocation);
         }
       } else if (mInput.substr(mPosition).starts_with("{%")) {
-        tokens.push_back(Token{Token::Type::BlockStart, "{%"});
-        mPosition += 2;
+        const Location blockStartLocation = location();
+        tokens.push_back(makeToken(Token::Type::BlockStart, "{%"));
+        advance(2);
         skip_whitespace();
         std::string_view remaining = mInput.substr(mPosition);
         while (!remaining.empty() && !remaining.starts_with("%}")) {
           if (remaining.starts_with(ifLiteral)) {
-            tokens.push_back(Token{Token::Type::If, ifLiteral});
-            mPosition += ifLiteral.size();
+            tokens.push_back(makeToken(Token::Type::If, ifLiteral));
+            advance(ifLiteral.size());
           } else if (remaining.starts_with(elseLiteral)) {
-            tokens.push_back(Token{Token::Type::Else, elseLiteral});
-            mPosition += elseLiteral.size();
+            tokens.push_back(makeToken(Token::Type::Else, elseLiteral));
+            advance(elseLiteral.size());
           } else if (remaining.starts_with(endifLiteral)) {
-            tokens.push_back(Token{Token::Type::EndIf, endifLiteral});
-            mPosition += endifLiteral.size();
+            tokens.push_back(makeToken(Token::Type::EndIf, endifLiteral));
+            advance(endifLiteral.size());
           } else if (remaining.starts_with(forLiteral)) {
-            tokens.push_back(Token{Token::Type::For, forLiteral});
-            mPosition += forLiteral.size();
+            tokens.push_back(makeToken(Token::Type::For, forLiteral));
+            advance(forLiteral.size());
           } else if (remaining.starts_with(endforLiteral)) {
-            tokens.push_back(Token{Token::Type::EndFor, endforLiteral});
-            mPosition += endforLiteral.size();
+            tokens.push_back(makeToken(Token::Type::EndFor, endforLiteral));
+            advance(endforLiteral.size());
           } else if (remaining.starts_with(inLiteral)) {
-            tokens.push_back(Token{Token::Type::In, inLiteral});
-            mPosition += inLiteral.size();
+            tokens.push_back(makeToken(Token::Type::In, inLiteral));
+            advance(inLiteral.size());
           } else {
             std::size_t nameEnd = remaining.find_first_of(" \t\r%}");
             if (nameEnd == std::string_view::npos) {
-              throw std::runtime_error("Unterminated block");
+              throw TemplateError("Unterminated block", blockStartLocation);
             }
             std::string_view name = remaining.substr(0, nameEnd);
-            tokens.push_back(Token{Token::Type::Identifier, name});
-            mPosition += nameEnd;
+            tokens.push_back(makeToken(Token::Type::Identifier, name));
+            advance(nameEnd);
           }
           skip_whitespace();
           remaining = mInput.substr(mPosition);
         }
         if (mInput.substr(mPosition).starts_with("%}")) {
-          tokens.push_back(Token{Token::Type::BlockEnd, "%}"});
-          mPosition += 2;
+          tokens.push_back(makeToken(Token::Type::BlockEnd, "%}"));
+          advance(2);
         } else {
-          throw std::runtime_error("Expected '%}' at the end of block");
+          throw TemplateError("Expected '%}' at the end of block", blockStartLocation);
         }
       } else {
         std::size_t substitutionStart = mInput.find("{{", mPosition);
@@ -150,11 +197,11 @@ struct Lexer {
         if (textEnd == std::string_view::npos) {
           textEnd = mInput.size();
         }
-        tokens.push_back(Token{Token::Type::Text, mInput.substr(mPosition, textEnd - mPosition)});
-        mPosition = textEnd;
+        tokens.push_back(makeToken(Token::Type::Text, mInput.substr(mPosition, textEnd - mPosition)));
+        advance(textEnd - mPosition);
       }
     }
-    tokens.push_back(Token{Token::Type::EndOfFile, ""});
+    tokens.push_back(makeToken(Token::Type::EndOfFile, ""));
     return tokens;
   }
 };
@@ -165,7 +212,7 @@ auto tokenize(std::string_view templateContent) -> std::vector<Token> {
 }
 
 struct TextNode {
-  std::string_view content;
+  std::string content;
 
   void render(const JinjaContext& /* context */, std::ostream& out) const { out << content; }
 };
@@ -177,7 +224,7 @@ struct EmptyDocument {
 };
 
 struct SubstitutionNode {
-  std::string_view identifierPath;
+  std::string identifierPath;
 
   static auto get_next_identifier(std::string_view identifier) -> std::string_view {
     auto nextPos = identifier.find_first_of(".[");
@@ -260,7 +307,7 @@ struct SubstitutionNode {
 };
 
 struct IfElseNode {
-  std::string_view conditionVariable;
+  std::string conditionVariable;
   TemplateDocument trueBranch;
   TemplateDocument falseBranch;
 
@@ -284,8 +331,8 @@ struct IfElseNode {
 };
 
 struct ForEachNode {
-  std::string_view loopVariable;
-  std::string_view itemVariable;
+  std::string loopVariable;
+  std::string itemVariable;
   TemplateDocument body;
 
   void render(const JinjaContext& context, std::ostream& out) const {
@@ -340,16 +387,21 @@ auto find_matching_token(std::span<const Token> tokens, Token::Type startType, T
   throw std::runtime_error("No matching end token found");
 }
 
+auto offset(Location location, std::ptrdiff_t offset) -> Location {
+  return Location{location.line, static_cast<std::size_t>(static_cast<std::ptrdiff_t>(location.column) + offset)};
+}
+
 auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
   assert(tokens[0].type == Token::Type::If);
+  Location ifLocation = tokens[0].location;
   if (tokens.size() < 2 || tokens[1].type != Token::Type::Identifier) {
-    throw std::runtime_error("Expected identifier after 'if'");
+    throw TemplateError("Expected identifier after 'if'", ifLocation, offset(ifLocation, 2));
   }
   if (tokens.size() < 3) {
-    throw std::runtime_error("Unexpected end of tokens after 'if' condition");
+    throw TemplateError("Unexpected end of tokens after 'if' condition", ifLocation, offset(ifLocation, 2));
   }
   if (tokens[2].type != Token::Type::BlockEnd) {
-    throw std::runtime_error("Expected block end after 'if' condition");
+    throw TemplateError("Expected block end after 'if' condition", ifLocation, offset(ifLocation, 2));
   }
   std::string_view conditionVar = tokens[1].value;
   tokens = tokens.subspan(3); // Skip If, condition variable, and BlockEnd
@@ -357,25 +409,25 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
   std::size_t index =
       find_matching_token(tokens, Token::Type::If, Token::Type::EndIf, Token::Type::EndIf);
   if (index == tokens.size()) {
-    throw std::runtime_error("Expected 'endif' for 'if' block");
+    throw TemplateError("Expected 'endif' for 'if' block", ifLocation);
   }
   assert(tokens[index].type == Token::Type::EndIf);
   assert(index > 0); // There should be at least one token between If and End
   if (index + 1 >= tokens.size()) {
-    throw std::runtime_error("Unexpected end of tokens after 'if' block");
+    throw TemplateError("Unexpected end of tokens after 'if' block", ifLocation);
   }
   if (tokens[index - 1].type != Token::Type::BlockStart) {
-    throw std::runtime_error("Expected block start before 'endif'");
+    throw TemplateError("Expected block start before 'endif'", ifLocation);
   }
   if (tokens[index + 1].type != Token::Type::BlockEnd) {
-    throw std::runtime_error("Expected block end after 'endif'");
+    throw TemplateError("Expected block end after 'endif'", ifLocation);
   }
   std::span<const Token> ifClauseTokens =
       tokens.subspan(0, index - 1); // Exclude BlockStart before EndIf
   std::size_t elseIndex =
       find_matching_token(ifClauseTokens, Token::Type::If, Token::Type::Else, Token::Type::EndIf);
   if (elseIndex == 0) {
-    throw std::runtime_error("Unexpected 'else' at the beginning of 'if' block");
+    throw TemplateError("Unexpected 'else' at the beginning of 'if' block", ifLocation);
   }
   TemplateDocument trueBranch = TemplateDocument{EmptyDocument{}};
   TemplateDocument falseBranch = TemplateDocument{EmptyDocument{}};
@@ -383,11 +435,11 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
     trueBranch = make_document(ifClauseTokens);
   } else {
     if (ifClauseTokens[elseIndex - 1].type != Token::Type::BlockStart) {
-      throw std::runtime_error("Expected block start before 'else'");
+      throw TemplateError("Expected block start before 'else'", ifLocation);
     }
     if (elseIndex + 1 >= ifClauseTokens.size() ||
         ifClauseTokens[elseIndex + 1].type != Token::Type::BlockEnd) {
-      throw std::runtime_error("Expected block end after 'else'");
+      throw TemplateError("Expected block end after 'else'", ifLocation);
     }
     std::span<const Token> trueTokens =
         ifClauseTokens.subspan(0, elseIndex - 1); // Exclude BlockStart before Else
@@ -397,7 +449,7 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
     falseBranch = make_document(falseTokens);
   }
   return ParserResult{
-      TemplateDocument{IfElseNode{conditionVar, std::move(trueBranch), std::move(falseBranch)}},
+      TemplateDocument{IfElseNode{std::string{conditionVar}, std::move(trueBranch), std::move(falseBranch)}},
       tokens.subspan(index + 2) // Skip past EndIf and BlockEnd
   };
 }
@@ -432,7 +484,7 @@ auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
       tokens.subspan(0, index - 1); // Exclude BlockStart before EndFor
   TemplateDocument body = make_document(forBodyTokens);
   return ParserResult{
-      TemplateDocument{ForEachNode{loopVar, itemVar, std::move(body)}},
+      TemplateDocument{ForEachNode{std::string{loopVar}, std::string{itemVar}, std::move(body)}},
       tokens.subspan(index + 2) // Skip past EndFor and BlockEnd
   };
 }
@@ -461,7 +513,7 @@ auto parse_substitution(std::span<const Token> tokens) -> ParserResult {
   if (tokens[2].type != Token::Type::VariableEnd) {
     throw std::runtime_error("Expected variable end token in substitution");
   }
-  return ParserResult{TemplateDocument{SubstitutionNode{tokens[1].value}}, tokens.subspan(3)};
+  return ParserResult{TemplateDocument{SubstitutionNode{std::string{tokens[1].value}}}, tokens.subspan(3)};
 }
 
 auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
@@ -470,7 +522,7 @@ auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
   }
   switch (tokens[0].type) {
   case Token::Type::Text:
-    return ParserResult{TemplateDocument{TextNode{tokens[0].value}}, tokens.subspan(1)};
+    return ParserResult{TemplateDocument{TextNode{std::string{tokens[0].value}}}, tokens.subspan(1)};
   case Token::Type::VariableStart:
     return parse_substitution(tokens);
   case Token::Type::BlockStart:
@@ -494,8 +546,6 @@ auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
   case Token::Type::In:
     [[fallthrough]];
   case Token::Type::Identifier:
-    [[fallthrough]];
-  case Token::Type::StringLiteral:
     throw std::runtime_error("Unexpected token type in template");
   }
 
@@ -513,11 +563,51 @@ auto make_document(std::span<const Token> tokens) -> TemplateDocument {
   return TemplateDocument{MultipleNodes{documents}};
 }
 
+TemplateError::TemplateError(const std::string& message, Location location, Location endLocation)
+    : std::runtime_error(message), mLocationStart(location), mLocationEnd(endLocation) {}
+
+auto TemplateError::location() const noexcept -> Location { return mLocationStart; }
+
+auto TemplateError::format_message(std::string_view templateName, std::string_view content) const -> std::string {
+  if (templateName.empty()) {
+    templateName = "<template>";
+  }
+  std::string formattedMessage = std::format("Error: {}:{}: {}\n", templateName, mLocationStart.line, std::runtime_error::what());
+
+  // Extract the relevant line from the source content
+  std::string_view remainingSource = content;
+  std::size_t newLinePos = remainingSource.find('\n');
+  for (std::size_t currentLine = 1; currentLine < mLocationStart.line && newLinePos != std::string_view::npos; ++currentLine) {
+    remainingSource = remainingSource.substr(newLinePos + 1);
+    newLinePos = remainingSource.find('\n');
+  }
+  if (remainingSource.empty()) {
+    return formattedMessage;
+  }
+  newLinePos = remainingSource.find('\n');
+  std::string_view errorLine = remainingSource.substr(0, newLinePos);
+  formattedMessage += std::string(errorLine) + "\n";
+
+  // Add indicator for the error column
+  formattedMessage += std::string(mLocationStart.column - 1, ' ');
+  if (mLocationEnd.line == mLocationStart.line && mLocationEnd.column > mLocationStart.column) {
+    formattedMessage += std::string(mLocationEnd.column - mLocationStart.column, '^');
+  } else {
+    formattedMessage += "^";
+  }
+  formattedMessage += "\n";
+
+  return formattedMessage;
+}
+
 } // namespace
 
-auto make_document(std::string_view templateContent) -> TemplateDocument {
+auto make_document(std::string_view templateContent, const std::string& templateName) -> TemplateDocument try {    
   auto tokens = tokenize(templateContent);
   return make_document(tokens);
+} catch (const TemplateError& e) {
+  std::string message = e.format_message(templateName, templateContent);
+  throw std::runtime_error(message);
 }
 
 } // namespace ms
