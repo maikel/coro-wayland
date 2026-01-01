@@ -435,11 +435,11 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
     trueBranch = make_document(ifClauseTokens);
   } else {
     if (ifClauseTokens[elseIndex - 1].type != Token::Type::BlockStart) {
-      throw TemplateError("Expected block start before 'else'", ifLocation);
+      throw TemplateError("Expected block start before 'else'", ifClauseTokens[elseIndex - 1].location);
     }
     if (elseIndex + 1 >= ifClauseTokens.size() ||
         ifClauseTokens[elseIndex + 1].type != Token::Type::BlockEnd) {
-      throw TemplateError("Expected block end after 'else'", ifLocation);
+      throw TemplateError("Expected block end after 'else'", ifClauseTokens[elseIndex - 1].location);
     }
     std::span<const Token> trueTokens =
         ifClauseTokens.subspan(0, elseIndex - 1); // Exclude BlockStart before Else
@@ -455,30 +455,31 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
 }
 
 auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
+  const Location forLocation = tokens[0].location;
   assert(tokens[0].type == Token::Type::For);
   if (tokens.size() < 4 || tokens[1].type != Token::Type::Identifier ||
       tokens[2].type != Token::Type::In || tokens[3].type != Token::Type::Identifier) {
-    throw std::runtime_error("Expected 'for <item> in <array>' syntax");
+    throw TemplateError("Expected 'for <item> in <array>' syntax", forLocation);
   }
   std::string_view itemVar = tokens[1].value;
   std::string_view loopVar = tokens[3].value;
   if (tokens.size() < 5 || tokens[4].type != Token::Type::BlockEnd) {
-    throw std::runtime_error("Unexpected end of tokens after 'for' declaration");
+    throw TemplateError("Unexpected end of tokens after 'for' declaration", forLocation);
   }
   tokens = tokens.subspan(5); // Skip For, item variable, In, loop variable, and BlockEnd
 
   std::size_t index =
       find_matching_token(tokens, Token::Type::For, Token::Type::EndFor, Token::Type::EndFor);
   if (index == tokens.size()) {
-    throw std::runtime_error("Expected 'endfor' for 'for' block");
+    throw TemplateError("Expected 'endfor' for 'for' block", forLocation);
   }
   assert(index > 0); // There should be at least one token between For and EndFor
   assert(tokens[index].type == Token::Type::EndFor);
   if (tokens[index - 1].type != Token::Type::BlockStart) {
-    throw std::runtime_error("Expected block start before 'endfor'");
+    throw TemplateError("Expected block start before 'endfor'", tokens[index].location);
   }
   if (index + 1 >= tokens.size() || tokens[index + 1].type != Token::Type::BlockEnd) {
-    throw std::runtime_error("Expected block end after 'endfor'");
+    throw TemplateError("Expected block end after 'endfor'", tokens[index].location);
   }
   std::span<const Token> forBodyTokens =
       tokens.subspan(0, index - 1); // Exclude BlockStart before EndFor
@@ -490,28 +491,30 @@ auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
 }
 
 auto parse_block(std::span<const Token> tokens) -> ParserResult {
-  tokens = tokens.subspan(1); // Skip BlockStart
-  if (tokens.empty()) {
-    throw std::runtime_error("Unexpected end of tokens in block");
+  const Location blockLocation = tokens[0].location;
+  if (tokens.size() <= 1) {
+    throw TemplateError("Unexpected end of tokens in block", blockLocation);
   }
+  tokens = tokens.subspan(1); // Skip BlockStart
   if (tokens[0].type == Token::Type::If) {
     return parse_if_else(tokens);
   } else if (tokens[0].type == Token::Type::For) {
     return parse_for_each(tokens);
   }
-  throw std::runtime_error("Unsupported block type");
+  throw TemplateError("Unsupported block type", blockLocation);
 }
 
 auto parse_substitution(std::span<const Token> tokens) -> ParserResult {
+  const Location substitutionLocation = tokens[0].location;
   assert(tokens[0].type == Token::Type::VariableStart);
   if (tokens.size() < 3) {
-    throw std::runtime_error("Unexpected end of tokens in substitution");
+    throw TemplateError("Unexpected end of tokens in substitution", substitutionLocation);
   }
   if (tokens[1].type != Token::Type::Identifier) {
-    throw std::runtime_error("Expected identifier in substitution");
+    throw TemplateError("Expected identifier in substitution", substitutionLocation);
   }
   if (tokens[2].type != Token::Type::VariableEnd) {
-    throw std::runtime_error("Expected variable end token in substitution");
+    throw TemplateError("Expected variable end token in substitution", substitutionLocation);
   }
   return ParserResult{TemplateDocument{SubstitutionNode{std::string{tokens[1].value}}}, tokens.subspan(3)};
 }
@@ -546,10 +549,10 @@ auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
   case Token::Type::In:
     [[fallthrough]];
   case Token::Type::Identifier:
-    throw std::runtime_error("Unexpected token type in template");
+    throw TemplateError("Unexpected token type in template", tokens[0].location);
   }
 
-  throw std::runtime_error("Unsupported token type in template");
+  throw TemplateError("Unsupported token type in template", tokens[0].location);
 }
 
 auto make_document(std::span<const Token> tokens) -> TemplateDocument {
