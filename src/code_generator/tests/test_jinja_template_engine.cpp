@@ -1,6 +1,7 @@
 #include "JinjaTemplateEngine.hpp"
 
 #include <cassert>
+#include <iostream>
 #include <sstream>
 
 void test_substitution_hello_world() {
@@ -63,9 +64,12 @@ void test_for_loop_statement() {
   assert(output.str() == "Items: Apple Banana Cherry");
 }
 
-int main() {
+int main() try {
   test_substitution_hello_world();
   test_substitution_nested_object();
   test_if_else_statement();
   test_for_loop_statement();
+} catch (const std::exception& ex) {
+  std::cerr << "Test failed with exception:\n" << ex.what() << "\n";
+  return 1;
 }

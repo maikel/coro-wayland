@@ -39,12 +39,11 @@ void TemplateDocument::render(const JinjaContext& context, std::ostream& out) co
   }
 }
 
-
 namespace {
 
 struct Location {
-    std::size_t line;
-    std::size_t column;
+  std::size_t line;
+  std::size_t column;
 };
 
 class TemplateError : public std::runtime_error {
@@ -81,6 +80,15 @@ struct Token {
   Location location;
 };
 
+auto offset(Location location, std::ptrdiff_t offset) -> Location {
+  return Location{location.line,
+                  static_cast<std::size_t>(static_cast<std::ptrdiff_t>(location.column) + offset)};
+}
+
+template <class I> auto make_signed(I value) -> std::make_signed_t<I> {
+  return static_cast<std::make_signed_t<I>>(value);
+}
+
 auto make_document(std::span<const Token> tokens) -> TemplateDocument;
 
 struct Lexer {
@@ -88,6 +96,50 @@ struct Lexer {
   std::size_t mPosition = 0;
   std::size_t mLine = 1;
   std::size_t mColumn = 1;
+
+  auto validate_identifier(std::string_view identifier) -> std::string_view {
+    if (identifier.empty() ||
+        (!std::isalpha(static_cast<unsigned char>(identifier[0])) && identifier[0] != '_')) {
+      throw TemplateError("Invalid identifier: '" + std::string(identifier) + "'", location());
+    }
+
+    std::string_view remaining = identifier;
+    while (!remaining.empty()) {
+      auto pointOrArrayPos = identifier.find_first_of(".[");
+      std::string_view part = remaining.substr(0, pointOrArrayPos);
+      if (part.empty() || !std::all_of(part.begin() + 1, part.end(), [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
+          })) {
+        throw TemplateError("Invalid identifier: '" + std::string(identifier) + "'", location());
+      }
+      remaining = remaining.substr(part.size());
+      if (remaining.starts_with(".")) {
+        if (remaining.size() == 1) {
+          throw TemplateError("Trailing dot in identifier: '" + std::string(identifier) + "'",
+                              offset(location(), make_signed(pointOrArrayPos)));
+        }
+        remaining = remaining.substr(1);
+      } else if (remaining.starts_with("[")) {
+        std::size_t closingBracket = remaining.find(']');
+        if (closingBracket == std::string_view::npos) {
+          throw TemplateError("Unterminated array index in identifier: '" +
+                                  std::string(identifier) + "'",
+                              offset(location(), make_signed(pointOrArrayPos)));
+        }
+        std::string_view indexPart = remaining.substr(1, closingBracket - 1);
+        if (indexPart.empty() || !std::all_of(indexPart.begin(), indexPart.end(), [](char c) {
+              return std::isdigit(static_cast<unsigned char>(c));
+            })) {
+          throw TemplateError("Invalid array index in identifier: '" + std::string(identifier) +
+                                  "'",
+                              offset(location(), make_signed(pointOrArrayPos + 1)),
+                              offset(location(), make_signed(pointOrArrayPos + closingBracket)));
+        }
+        remaining = remaining.substr(closingBracket + 1);
+      }
+    }
+    return identifier;
+  }
 
   void advance(std::size_t count = 1) {
     for (std::size_t i = 0; i < count; ++i) {
@@ -120,9 +172,7 @@ struct Lexer {
     return Token{type, value, Location{mLine, mColumn}};
   }
 
-  auto location() const noexcept -> Location {
-    return Location{mLine, mColumn};
-  }
+  auto location() const noexcept -> Location { return Location{mLine, mColumn}; }
 
   auto tokenize() -> std::vector<Token> {
     std::vector<Token> tokens;
@@ -133,19 +183,20 @@ struct Lexer {
         advance(2);
         skip_whitespace();
         std::string_view remaining = mInput.substr(mPosition);
-        std::size_t nameEnd = remaining.find_first_of(" \t\r}");
-        if (nameEnd == std::string_view::npos) {
+        std::size_t identifierEnd = remaining.find_first_of(" \t\r}");
+        if (identifierEnd == std::string_view::npos) {
           throw TemplateError("Unterminated variable substitution", varStartLocation);
         }
-        std::string_view name = remaining.substr(0, nameEnd);
-        tokens.push_back(makeToken(Token::Type::Identifier, name));
-        mPosition += nameEnd;
+        std::string_view identifier = validate_identifier(remaining.substr(0, identifierEnd));
+        tokens.push_back(makeToken(Token::Type::Identifier, identifier));
+        mPosition += identifierEnd;
         skip_whitespace();
         if (mInput.substr(mPosition).starts_with("}}")) {
           tokens.push_back(makeToken(Token::Type::VariableEnd, "}}"));
           advance(2);
         } else {
-          throw TemplateError("Expected '}}' at the end of variable substitution", varStartLocation);
+          throw TemplateError("Expected '}}' at the end of variable substitution",
+                              varStartLocation);
         }
       } else if (mInput.substr(mPosition).starts_with("{%")) {
         const Location blockStartLocation = location();
@@ -173,13 +224,13 @@ struct Lexer {
             tokens.push_back(makeToken(Token::Type::In, inLiteral));
             advance(inLiteral.size());
           } else {
-            std::size_t nameEnd = remaining.find_first_of(" \t\r%}");
-            if (nameEnd == std::string_view::npos) {
+            std::size_t identifierEnd = remaining.find_first_of(" \t\r%}");
+            if (identifierEnd == std::string_view::npos) {
               throw TemplateError("Unterminated block", blockStartLocation);
             }
-            std::string_view name = remaining.substr(0, nameEnd);
-            tokens.push_back(makeToken(Token::Type::Identifier, name));
-            advance(nameEnd);
+            std::string_view identifier = validate_identifier(remaining.substr(0, identifierEnd));
+            tokens.push_back(makeToken(Token::Type::Identifier, identifier));
+            advance(identifierEnd);
           }
           skip_whitespace();
           remaining = mInput.substr(mPosition);
@@ -197,7 +248,8 @@ struct Lexer {
         if (textEnd == std::string_view::npos) {
           textEnd = mInput.size();
         }
-        tokens.push_back(makeToken(Token::Type::Text, mInput.substr(mPosition, textEnd - mPosition)));
+        tokens.push_back(
+            makeToken(Token::Type::Text, mInput.substr(mPosition, textEnd - mPosition)));
         advance(textEnd - mPosition);
       }
     }
@@ -213,6 +265,7 @@ auto tokenize(std::string_view templateContent) -> std::vector<Token> {
 
 struct TextNode {
   std::string content;
+  Location location;
 
   void render(const JinjaContext& /* context */, std::ostream& out) const { out << content; }
 };
@@ -225,6 +278,7 @@ struct EmptyDocument {
 
 struct SubstitutionNode {
   std::string identifierPath;
+  Location location;
 
   static auto get_next_identifier(std::string_view identifier) -> std::string_view {
     auto nextPos = identifier.find_first_of(".[");
@@ -310,6 +364,7 @@ struct IfElseNode {
   std::string conditionVariable;
   TemplateDocument trueBranch;
   TemplateDocument falseBranch;
+  Location location;
 
   void render(const JinjaContext& context, std::ostream& out) const {
     const JinjaContext& condContext =
@@ -334,6 +389,8 @@ struct ForEachNode {
   std::string loopVariable;
   std::string itemVariable;
   TemplateDocument body;
+  Location itemVarlocation;
+  Location loopVarLocation;
 
   void render(const JinjaContext& context, std::ostream& out) const {
     const JinjaContext& loopContext =
@@ -387,21 +444,20 @@ auto find_matching_token(std::span<const Token> tokens, Token::Type startType, T
   throw std::runtime_error("No matching end token found");
 }
 
-auto offset(Location location, std::ptrdiff_t offset) -> Location {
-  return Location{location.line, static_cast<std::size_t>(static_cast<std::ptrdiff_t>(location.column) + offset)};
-}
-
 auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
   assert(tokens[0].type == Token::Type::If);
-  Location ifLocation = tokens[0].location;
+  const Location ifLocation = tokens[0].location;
   if (tokens.size() < 2 || tokens[1].type != Token::Type::Identifier) {
     throw TemplateError("Expected identifier after 'if'", ifLocation, offset(ifLocation, 2));
   }
+  const Location conditionLocation = tokens[1].location;
   if (tokens.size() < 3) {
-    throw TemplateError("Unexpected end of tokens after 'if' condition", ifLocation, offset(ifLocation, 2));
+    throw TemplateError("Unexpected end of tokens after 'if' condition", ifLocation,
+                        offset(ifLocation, 2));
   }
   if (tokens[2].type != Token::Type::BlockEnd) {
-    throw TemplateError("Expected block end after 'if' condition", ifLocation, offset(ifLocation, 2));
+    throw TemplateError("Expected block end after 'if' condition", ifLocation,
+                        offset(ifLocation, 2));
   }
   std::string_view conditionVar = tokens[1].value;
   tokens = tokens.subspan(3); // Skip If, condition variable, and BlockEnd
@@ -435,11 +491,13 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
     trueBranch = make_document(ifClauseTokens);
   } else {
     if (ifClauseTokens[elseIndex - 1].type != Token::Type::BlockStart) {
-      throw TemplateError("Expected block start before 'else'", ifClauseTokens[elseIndex - 1].location);
+      throw TemplateError("Expected block start before 'else'",
+                          ifClauseTokens[elseIndex - 1].location);
     }
     if (elseIndex + 1 >= ifClauseTokens.size() ||
         ifClauseTokens[elseIndex + 1].type != Token::Type::BlockEnd) {
-      throw TemplateError("Expected block end after 'else'", ifClauseTokens[elseIndex - 1].location);
+      throw TemplateError("Expected block end after 'else'",
+                          ifClauseTokens[elseIndex - 1].location);
     }
     std::span<const Token> trueTokens =
         ifClauseTokens.subspan(0, elseIndex - 1); // Exclude BlockStart before Else
@@ -449,7 +507,8 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
     falseBranch = make_document(falseTokens);
   }
   return ParserResult{
-      TemplateDocument{IfElseNode{std::string{conditionVar}, std::move(trueBranch), std::move(falseBranch)}},
+      TemplateDocument{IfElseNode{std::string{conditionVar}, std::move(trueBranch),
+                                  std::move(falseBranch), conditionLocation}},
       tokens.subspan(index + 2) // Skip past EndIf and BlockEnd
   };
 }
@@ -461,6 +520,8 @@ auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
       tokens[2].type != Token::Type::In || tokens[3].type != Token::Type::Identifier) {
     throw TemplateError("Expected 'for <item> in <array>' syntax", forLocation);
   }
+  const Location itemVarLocation = tokens[1].location;
+  const Location loopVarLocation = tokens[3].location;
   std::string_view itemVar = tokens[1].value;
   std::string_view loopVar = tokens[3].value;
   if (tokens.size() < 5 || tokens[4].type != Token::Type::BlockEnd) {
@@ -484,8 +545,11 @@ auto parse_for_each(std::span<const Token> tokens) -> ParserResult {
   std::span<const Token> forBodyTokens =
       tokens.subspan(0, index - 1); // Exclude BlockStart before EndFor
   TemplateDocument body = make_document(forBodyTokens);
+  ForEachNode node{std::string{loopVar}, std::string{itemVar}, std::move(body), {}, {}};
+  node.itemVarlocation = itemVarLocation;
+  node.loopVarLocation = loopVarLocation;
   return ParserResult{
-      TemplateDocument{ForEachNode{std::string{loopVar}, std::string{itemVar}, std::move(body)}},
+      TemplateDocument{std::move(node)},
       tokens.subspan(index + 2) // Skip past EndFor and BlockEnd
   };
 }
@@ -516,7 +580,9 @@ auto parse_substitution(std::span<const Token> tokens) -> ParserResult {
   if (tokens[2].type != Token::Type::VariableEnd) {
     throw TemplateError("Expected variable end token in substitution", substitutionLocation);
   }
-  return ParserResult{TemplateDocument{SubstitutionNode{std::string{tokens[1].value}}}, tokens.subspan(3)};
+  return ParserResult{
+      TemplateDocument{SubstitutionNode{std::string{tokens[1].value}, tokens[1].location}},
+      tokens.subspan(3)};
 }
 
 auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
@@ -525,7 +591,9 @@ auto parse_next_document(std::span<const Token> tokens) -> ParserResult {
   }
   switch (tokens[0].type) {
   case Token::Type::Text:
-    return ParserResult{TemplateDocument{TextNode{std::string{tokens[0].value}}}, tokens.subspan(1)};
+    return ParserResult{
+        TemplateDocument{TextNode{std::string{tokens[0].value}, tokens[0].location}},
+        tokens.subspan(1)};
   case Token::Type::VariableStart:
     return parse_substitution(tokens);
   case Token::Type::BlockStart:
@@ -571,16 +639,19 @@ TemplateError::TemplateError(const std::string& message, Location location, Loca
 
 auto TemplateError::location() const noexcept -> Location { return mLocationStart; }
 
-auto TemplateError::format_message(std::string_view templateName, std::string_view content) const -> std::string {
+auto TemplateError::format_message(std::string_view templateName, std::string_view content) const
+    -> std::string {
   if (templateName.empty()) {
     templateName = "<template>";
   }
-  std::string formattedMessage = std::format("Error: {}:{}: {}\n", templateName, mLocationStart.line, std::runtime_error::what());
+  std::string formattedMessage = std::format("Error: {}:{}: {}\n", templateName,
+                                             mLocationStart.line, std::runtime_error::what());
 
   // Extract the relevant line from the source content
   std::string_view remainingSource = content;
   std::size_t newLinePos = remainingSource.find('\n');
-  for (std::size_t currentLine = 1; currentLine < mLocationStart.line && newLinePos != std::string_view::npos; ++currentLine) {
+  for (std::size_t currentLine = 1;
+       currentLine < mLocationStart.line && newLinePos != std::string_view::npos; ++currentLine) {
     remainingSource = remainingSource.substr(newLinePos + 1);
     newLinePos = remainingSource.find('\n');
   }
@@ -605,7 +676,8 @@ auto TemplateError::format_message(std::string_view templateName, std::string_vi
 
 } // namespace
 
-auto make_document(std::string_view templateContent, const std::string& templateName) -> TemplateDocument try {    
+auto make_document(std::string_view templateContent, const std::string& templateName)
+    -> TemplateDocument try {
   auto tokens = tokenize(templateContent);
   return make_document(tokens);
 } catch (const TemplateError& e) {
