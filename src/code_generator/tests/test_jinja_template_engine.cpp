@@ -4,6 +4,16 @@
 #include <iostream>
 #include <sstream>
 
+void render(ms::TemplateDocument& document, const ms::JinjaContext& context, std::ostream& out,
+            std::string_view content) {
+  try {
+    document.render(context, out);
+  } catch (const ms::RenderError& e) {
+    std::string message = e.formatted_message(content, "<template>");
+    throw std::runtime_error(message);
+  }
+}
+
 void test_substitution_hello_world() {
   const std::string templateContent = "Hello, {{ name }}!";
   ms::TemplateDocument document = ms::make_document(templateContent);
@@ -11,7 +21,7 @@ void test_substitution_hello_world() {
   ms::JinjaContext context{ms::JinjaObject{{"name", ms::JinjaContext("World")}}};
 
   std::ostringstream output;
-  document.render(context, output);
+  render(document, context, output, templateContent);
 
   assert(output.str() == "Hello, World!");
 }
@@ -25,7 +35,7 @@ void test_substitution_nested_object() {
                                                 {"age", ms::JinjaContext("30")}})}}};
 
   std::ostringstream output;
-  document.render(context, output);
+  render(document, context, output, templateContent);
 
   assert(output.str() == "User: Alice, Age: 30");
 }
@@ -38,14 +48,14 @@ void test_if_else_statement() {
   // Test when is_member is true
   ms::JinjaContext contextTrue{ms::JinjaObject{{"is_member", ms::JinjaContext("true")}}};
   std::ostringstream outputTrue;
-  document.render(contextTrue, outputTrue);
+  render(document, contextTrue, outputTrue, templateContent);
   std::string output = outputTrue.str();
   assert(output == "Welcome back, member!");
 
   // Test when is_member is false
   ms::JinjaContext contextFalse{ms::JinjaObject{{"is_member", ms::JinjaContext("")}}};
   std::ostringstream outputFalse;
-  document.render(contextFalse, outputFalse);
+  render(document, contextFalse, outputFalse, templateContent);
   assert(outputFalse.str() == "Please sign up.");
 }
 
@@ -59,7 +69,7 @@ void test_for_loop_statement() {
                                        ms::JinjaContext("Cherry")})}}};
 
   std::ostringstream output;
-  document.render(context, output);
+  render(document, context, output, templateContent);
 
   assert(output.str() == "Items: Apple Banana Cherry");
 }

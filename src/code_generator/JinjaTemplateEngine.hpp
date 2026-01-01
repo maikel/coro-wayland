@@ -51,6 +51,23 @@ inline constexpr auto render_implementation =
       doc.render(context, out);
     };
 
+struct Location {
+  std::size_t line;
+  std::size_t column;
+};
+
+class RenderError : public std::runtime_error {
+public:
+  RenderError(const std::string& message, Location loc, Location endLoc = Location{});
+
+  auto formatted_message(std::string_view content, const std::string& templateName) const
+      -> std::string;
+
+private:
+  Location mStartLocation;
+  Location mEndLocation;
+};
+
 struct TemplateDocument {
   TemplateDocument() = default;
   TemplateDocument(const TemplateDocument&) = default;

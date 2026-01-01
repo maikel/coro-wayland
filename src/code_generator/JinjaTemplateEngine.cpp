@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <format>
+#include <mdspan>
 #include <span>
 #include <stdexcept>
 
@@ -33,6 +34,37 @@ auto JinjaContext::asArray() const -> const std::vector<JinjaContext>& {
   return std::get<2>(mStorage);
 }
 
+RenderError::RenderError(const std::string& message, Location loc, Location endLoc)
+    : std::runtime_error(message), mStartLocation(loc), mEndLocation(endLoc) {}
+
+auto RenderError::formatted_message(std::string_view content, const std::string& templateName) const
+    -> std::string {
+  std::string_view lineStart = content;
+  for (std::size_t i = 0; i < mStartLocation.line - 1; ++i) {
+    std::size_t nextLinePos = lineStart.find('\n');
+    if (nextLinePos == std::string_view::npos) {
+      break;
+    }
+    lineStart = lineStart.substr(nextLinePos + 1);
+  }
+  std::size_t lineEndPos = lineStart.find('\n');
+  std::string_view line;
+  if (lineEndPos != std::string_view::npos) {
+    line = lineStart.substr(0, lineEndPos);
+  } else {
+    line = lineStart;
+  }
+
+  std::string underline = std::string(mStartLocation.column - 1, ' ');
+  if (mEndLocation.line == mStartLocation.line && mEndLocation.column > mStartLocation.column) {
+    underline += std::string(mEndLocation.column - mStartLocation.column, '^');
+  } else {
+    underline += '^';
+  }
+  return std::format("{}:{}: {}\n{}\n{}", templateName, mStartLocation.line, what(), line,
+                     underline);
+}
+
 void TemplateDocument::render(const JinjaContext& context, std::ostream& out) const {
   if (mRenderFunc) {
     mRenderFunc(mDocument, context, out);
@@ -40,11 +72,52 @@ void TemplateDocument::render(const JinjaContext& context, std::ostream& out) co
 }
 
 namespace {
+auto levenshtein_distance(std::string_view a, std::string_view b) -> std::size_t {
+  std::vector<std::size_t> storage((a.size() + 1) * (b.size() + 1), 0);
+  std::mdspan<std::size_t, std::extents<std::size_t, std::dynamic_extent, std::dynamic_extent>> dp(
+      storage.data(), a.size() + 1, b.size() + 1);
 
-struct Location {
-  std::size_t line;
-  std::size_t column;
-};
+  // Base cases: distance from empty string
+  for (std::size_t i = 0; i <= a.size(); ++i)
+    dp[i, 0] = i;
+  for (std::size_t j = 0; j <= b.size(); ++j)
+    dp[0, j] = j;
+
+  // Fill the matrix
+  for (std::size_t i = 1; i <= a.size(); ++i) {
+    for (std::size_t j = 1; j <= b.size(); ++j) {
+      if (a[i - 1] == b[j - 1]) {
+        dp[i, j] = dp[i - 1, j - 1]; // No edit needed
+      } else {
+        dp[i, j] = 1 + std::min({
+                           dp[i - 1, j],    // Delete from a
+                           dp[i, j - 1],    // Insert into a
+                           dp[i - 1, j - 1] // Replace
+                       });
+      }
+    }
+  }
+
+  return dp[a.size(), b.size()];
+}
+
+auto find_closest_match(std::string_view requested, const JinjaObject& available)
+    -> std::optional<std::string> {
+  std::string bestMatch;
+  std::size_t bestDistance = 2; // Threshold: accept only very close matches
+
+  for (const auto& [key, _] : available) {
+    std::size_t dist = levenshtein_distance(requested, key);
+
+    // Only suggest if similar enough (distance ≤ 2) and better than previous
+    if (dist <= bestDistance && dist < bestDistance) {
+      bestMatch = key;
+      bestDistance = dist;
+    }
+  }
+
+  return bestDistance < 3 ? std::optional(bestMatch) : std::nullopt;
+}
 
 class TemplateError : public std::runtime_error {
 public:
@@ -288,8 +361,9 @@ struct SubstitutionNode {
     return identifier.substr(0, nextPos);
   }
 
-  static auto get_destination_context(const JinjaContext& context, std::string_view identifier)
-      -> const JinjaContext& {
+  static auto get_destination_context(const JinjaContext& context, std::string_view identifier,
+                                      Location location) -> const JinjaContext& {
+    std::size_t index = 0;
     std::string_view prevVar = identifier;
     const JinjaContext* currentContext = &context;
     while (!prevVar.empty()) {
@@ -297,64 +371,86 @@ struct SubstitutionNode {
       std::string nextVar(get_next_identifier(prevVar));
       auto it = currentObject->find(nextVar);
       if (it == currentObject->end()) {
-        throw std::runtime_error("Variable '" + nextVar + "' not found in context");
+        auto suggestion = find_closest_match(nextVar, *currentObject);
+        if (suggestion == std::nullopt) {
+          throw RenderError(std::format("Variable '{}' not found in context", nextVar),
+                            offset(location, make_signed(index)),
+                            offset(location, make_signed(index + nextVar.size())));
+        }
+        throw RenderError(std::format("Variable '{}' not found in context\nDid you mean '{}'?",
+                                      nextVar, *suggestion),
+                          offset(location, make_signed(index)),
+                          offset(location, make_signed(index + nextVar.size())));
       }
       const JinjaContext& nextContext = it->second;
       if (nextVar.size() == prevVar.size()) {
         return nextContext;
       }
       prevVar = prevVar.substr(nextVar.size());
+      index += nextVar.size();
       if (nextContext.isString()) {
-        throw std::runtime_error("Cannot access sub-property of a string variable");
+        throw RenderError("Cannot access sub-property of a string variable",
+                          offset(location, make_signed(index - nextVar.size())),
+                          offset(location, make_signed(index)));
       } else if (nextContext.isObject()) {
         if (!prevVar.starts_with(".")) {
-          throw std::runtime_error("Expected '.' after object variable");
+          throw RenderError("Expected '.' after object variable",
+                            offset(location, make_signed(index + 1)));
         }
         prevVar = prevVar.substr(1);
+        index += 1;
         currentContext = &nextContext;
       } else if (nextContext.isArray()) {
         prevVar = prevVar.substr(nextVar.size());
+        index += nextVar.size();
         const JinjaArray* currentArray = &nextContext.asArray();
         while (true) {
           if (!prevVar.starts_with("[")) {
-            throw std::runtime_error("Expected '[' after array variable");
+            throw RenderError("Expected '[' after array variable",
+                              offset(location, make_signed(index)));
           }
           std::size_t closingBracket = prevVar.find("]");
           if (closingBracket == std::string_view::npos) {
-            throw std::runtime_error("Expected closing ']' for array index");
+            throw RenderError("Expected closing ']' for array index",
+                              offset(location, make_signed(index)));
           }
           std::string_view indexStr = prevVar.substr(1, closingBracket - 1);
-          std::size_t index = std::stoul(std::string(indexStr));
-          if (index >= currentArray->size()) {
-            throw std::runtime_error("Array index out of bounds");
+          std::size_t arrayIndex = std::stoul(std::string(indexStr));
+          if (arrayIndex >= currentArray->size()) {
+            throw RenderError("Array index out of bounds", offset(location, make_signed(index)),
+                              offset(location, make_signed(index + closingBracket + 1)));
           }
-          const JinjaContext& arrayItem = (*currentArray)[index];
+          const JinjaContext& arrayItem = (*currentArray)[arrayIndex];
           if (arrayItem.isObject()) {
             currentContext = &arrayItem;
             prevVar = prevVar.substr(closingBracket + 1);
+            index += closingBracket + 1;
             break;
           } else if (arrayItem.isString()) {
             if (closingBracket + 1 != prevVar.size()) {
-              throw std::runtime_error("Cannot access sub-property of a string variable");
+              throw RenderError("Cannot access sub-property of a string variable",
+                                offset(location, make_signed(index + closingBracket + 1)));
             }
             return arrayItem;
           } else {
             assert(arrayItem.isArray());
             currentArray = &arrayItem.asArray();
             prevVar = prevVar.substr(closingBracket + 1);
+            index += closingBracket + 1;
           }
         }
       } else {
-        throw std::runtime_error("Unsupported variable type");
+        throw RenderError("Unsupported variable type", offset(location, make_signed(index)));
       }
     }
     return *currentContext;
   }
 
   void render(const JinjaContext& context, std::ostream& out) const {
-    const JinjaContext& destContext = get_destination_context(context, identifierPath);
+    const JinjaContext& destContext = get_destination_context(context, identifierPath, location);
     if (!destContext.isString()) {
-      throw std::runtime_error("Substitution variable is not a string");
+      throw RenderError("Substitution variable is not a string", location,
+                        offset(location, make_signed(identifierPath.size())));
     }
     out << destContext.asString();
   }
@@ -368,7 +464,7 @@ struct IfElseNode {
 
   void render(const JinjaContext& context, std::ostream& out) const {
     const JinjaContext& condContext =
-        SubstitutionNode::get_destination_context(context, conditionVariable);
+        SubstitutionNode::get_destination_context(context, conditionVariable, location);
     bool condition = false;
     if (condContext.isString()) {
       condition = !condContext.asString().empty();
@@ -394,9 +490,10 @@ struct ForEachNode {
 
   void render(const JinjaContext& context, std::ostream& out) const {
     const JinjaContext& loopContext =
-        SubstitutionNode::get_destination_context(context, loopVariable);
+        SubstitutionNode::get_destination_context(context, loopVariable, loopVarLocation);
     if (!loopContext.isArray()) {
-      throw std::runtime_error("For loop variable is not an array");
+      throw RenderError("For loop variable is not an array", loopVarLocation,
+                        offset(loopVarLocation, make_signed(loopVariable.size())));
     }
     const auto& arr = loopContext.asArray();
     std::string itemVarStr(itemVariable);
