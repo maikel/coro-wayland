@@ -178,7 +178,7 @@ struct Lexer {
 
     std::string_view remaining = identifier;
     while (!remaining.empty()) {
-      auto pointOrArrayPos = identifier.find_first_of(".[");
+      auto pointOrArrayPos = remaining.find_first_of(".[");
       std::string_view part = remaining.substr(0, pointOrArrayPos);
       if (part.empty() || !std::all_of(part.begin() + 1, part.end(), [](char c) {
             return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';

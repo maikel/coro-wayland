@@ -74,6 +74,21 @@ void test_for_loop_statement() {
   assert(output.str() == "Items: Apple Banana Cherry");
 }
 
+void test_missing_variable() {
+  const std::string templateContent = "{{ missin }}";
+  ms::TemplateDocument doc = ms::make_document(templateContent);
+  ms::JinjaContext ctx{ms::JinjaObject{{"missing", ms::JinjaContext{"missing"}}}};
+  
+  try {
+    std::ostringstream out;
+    doc.render(ctx, out);
+    assert(false);  // Should throw
+  } catch (const ms::RenderError& e) {
+    std::string msg = e.formatted_message(templateContent, "<template>");
+    assert(msg.find("Did you mean") != std::string::npos);
+  }
+}
+
 int main() try {
   test_substitution_hello_world();
   test_substitution_nested_object();
