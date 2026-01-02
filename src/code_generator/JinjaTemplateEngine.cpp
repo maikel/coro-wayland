@@ -116,7 +116,7 @@ auto find_closest_match(std::string_view requested, const JinjaObject& available
     }
   }
 
-  return bestDistance < 3 ? std::optional(bestMatch) : std::nullopt;
+  return bestDistance < 2 ? std::optional(bestMatch) : std::nullopt;
 }
 
 class TemplateError : public std::runtime_error {
@@ -209,6 +209,13 @@ struct Lexer {
                               offset(location(), make_signed(pointOrArrayPos + closingBracket)));
         }
         remaining = remaining.substr(closingBracket + 1);
+        if (remaining.starts_with(".")) {
+          if (remaining.size() == 1) {
+            throw TemplateError("Trailing dot in identifier: '" + std::string(identifier) + "'",
+                                offset(location(), make_signed(pointOrArrayPos)));
+          }
+          remaining = remaining.substr(1);
+        }
       }
     }
     return identifier;
@@ -247,6 +254,11 @@ struct Lexer {
 
   auto location() const noexcept -> Location { return Location{mLine, mColumn}; }
 
+  auto nextWord(std::string_view remaining) -> std::string_view {
+    auto space = remaining.find_first_of(" \t\r\n%}");
+    return remaining.substr(0, space);
+  }
+
   auto tokenize() -> std::vector<Token> {
     std::vector<Token> tokens;
     while (mPosition < mInput.size()) {
@@ -262,7 +274,7 @@ struct Lexer {
         }
         std::string_view identifier = validate_identifier(remaining.substr(0, identifierEnd));
         tokens.push_back(makeToken(Token::Type::Identifier, identifier));
-        mPosition += identifierEnd;
+        advance(identifierEnd);
         skip_whitespace();
         if (mInput.substr(mPosition).starts_with("}}")) {
           tokens.push_back(makeToken(Token::Type::VariableEnd, "}}"));
@@ -278,26 +290,27 @@ struct Lexer {
         skip_whitespace();
         std::string_view remaining = mInput.substr(mPosition);
         while (!remaining.empty() && !remaining.starts_with("%}")) {
-          if (remaining.starts_with(ifLiteral)) {
+          auto word = nextWord(remaining);
+          if (word == ifLiteral) {
             tokens.push_back(makeToken(Token::Type::If, ifLiteral));
             advance(ifLiteral.size());
-          } else if (remaining.starts_with(elseLiteral)) {
+          } else if (word == elseLiteral) {
             tokens.push_back(makeToken(Token::Type::Else, elseLiteral));
             advance(elseLiteral.size());
-          } else if (remaining.starts_with(endifLiteral)) {
+          } else if (word == endifLiteral) {
             tokens.push_back(makeToken(Token::Type::EndIf, endifLiteral));
             advance(endifLiteral.size());
-          } else if (remaining.starts_with(forLiteral)) {
+          } else if (word == forLiteral) {
             tokens.push_back(makeToken(Token::Type::For, forLiteral));
             advance(forLiteral.size());
-          } else if (remaining.starts_with(endforLiteral)) {
+          } else if (word == endforLiteral) {
             tokens.push_back(makeToken(Token::Type::EndFor, endforLiteral));
             advance(endforLiteral.size());
-          } else if (remaining.starts_with(inLiteral)) {
+          } else if (word == inLiteral) {
             tokens.push_back(makeToken(Token::Type::In, inLiteral));
             advance(inLiteral.size());
           } else {
-            std::size_t identifierEnd = remaining.find_first_of(" \t\r%}");
+            std::size_t identifierEnd = remaining.find_first_of(" \t\r\n%}");
             if (identifierEnd == std::string_view::npos) {
               throw TemplateError("Unterminated block", blockStartLocation);
             }
@@ -401,8 +414,6 @@ struct SubstitutionNode {
         index += 1;
         currentContext = &nextContext;
       } else if (nextContext.isArray()) {
-        prevVar = prevVar.substr(nextVar.size());
-        index += nextVar.size();
         const JinjaArray* currentArray = &nextContext.asArray();
         while (true) {
           if (!prevVar.starts_with("[")) {
@@ -424,7 +435,12 @@ struct SubstitutionNode {
           if (arrayItem.isObject()) {
             currentContext = &arrayItem;
             prevVar = prevVar.substr(closingBracket + 1);
-            index += closingBracket + 1;
+            if (!prevVar.starts_with(".")) {
+              throw RenderError("Expected '.' after object variable",
+                                offset(location, make_signed(index + 1)));
+            }
+            prevVar = prevVar.substr(1);
+            index += closingBracket + 2;
             break;
           } else if (arrayItem.isString()) {
             if (closingBracket + 1 != prevVar.size()) {
@@ -463,15 +479,19 @@ struct IfElseNode {
   Location location;
 
   void render(const JinjaContext& context, std::ostream& out) const {
-    const JinjaContext& condContext =
-        SubstitutionNode::get_destination_context(context, conditionVariable, location);
     bool condition = false;
-    if (condContext.isString()) {
-      condition = !condContext.asString().empty();
-    } else if (condContext.isArray()) {
-      condition = !condContext.asArray().empty();
-    } else if (condContext.isObject()) {
-      condition = !condContext.asObject().empty();
+    try {
+      const JinjaContext& condContext =
+          SubstitutionNode::get_destination_context(context, conditionVariable, location);
+      if (condContext.isString()) {
+        condition = !condContext.asString().empty();
+      } else if (condContext.isArray()) {
+        condition = !condContext.asArray().empty();
+      } else if (condContext.isObject()) {
+        condition = !condContext.asObject().empty();
+      }
+    } catch (...) {
+      condition = false;
     }
     if (condition) {
       trueBranch.render(context, out);
@@ -538,7 +558,7 @@ auto find_matching_token(std::span<const Token> tokens, Token::Type startType, T
       }
     }
   }
-  throw std::runtime_error("No matching end token found");
+  throw TemplateError("No matching end token found", tokens[0].location);
 }
 
 auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
@@ -559,32 +579,31 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
   std::string_view conditionVar = tokens[1].value;
   tokens = tokens.subspan(3); // Skip If, condition variable, and BlockEnd
 
-  std::size_t index =
+  std::size_t endifIndex =
       find_matching_token(tokens, Token::Type::If, Token::Type::EndIf, Token::Type::EndIf);
-  if (index == tokens.size()) {
+  if (endifIndex == tokens.size()) {
     throw TemplateError("Expected 'endif' for 'if' block", ifLocation);
   }
-  assert(tokens[index].type == Token::Type::EndIf);
-  assert(index > 0); // There should be at least one token between If and End
-  if (index + 1 >= tokens.size()) {
+  assert(tokens[endifIndex].type == Token::Type::EndIf);
+  assert(endifIndex > 0); // There should be at least one token between If and End
+  if (endifIndex + 1 >= tokens.size()) {
     throw TemplateError("Unexpected end of tokens after 'if' block", ifLocation);
   }
-  if (tokens[index - 1].type != Token::Type::BlockStart) {
+  if (tokens[endifIndex - 1].type != Token::Type::BlockStart) {
     throw TemplateError("Expected block start before 'endif'", ifLocation);
   }
-  if (tokens[index + 1].type != Token::Type::BlockEnd) {
+  if (tokens[endifIndex + 1].type != Token::Type::BlockEnd) {
     throw TemplateError("Expected block end after 'endif'", ifLocation);
   }
-  std::span<const Token> ifClauseTokens =
-      tokens.subspan(0, index - 1); // Exclude BlockStart before EndIf
-  std::size_t elseIndex =
-      find_matching_token(ifClauseTokens, Token::Type::If, Token::Type::Else, Token::Type::EndIf);
+  std::span<const Token> ifClauseTokens = tokens.subspan(0, endifIndex - 1);
+  std::size_t elseIndex = find_matching_token(tokens.subspan(0, endifIndex + 1), Token::Type::If,
+                                              Token::Type::Else, Token::Type::EndIf);
   if (elseIndex == 0) {
     throw TemplateError("Unexpected 'else' at the beginning of 'if' block", ifLocation);
   }
   TemplateDocument trueBranch = TemplateDocument{EmptyDocument{}};
   TemplateDocument falseBranch = TemplateDocument{EmptyDocument{}};
-  if (elseIndex == ifClauseTokens.size()) {
+  if (elseIndex >= endifIndex) {
     trueBranch = make_document(ifClauseTokens);
   } else {
     if (ifClauseTokens[elseIndex - 1].type != Token::Type::BlockStart) {
@@ -606,7 +625,7 @@ auto parse_if_else(std::span<const Token> tokens) -> ParserResult {
   return ParserResult{
       TemplateDocument{IfElseNode{std::string{conditionVar}, std::move(trueBranch),
                                   std::move(falseBranch), conditionLocation}},
-      tokens.subspan(index + 2) // Skip past EndIf and BlockEnd
+      tokens.subspan(endifIndex + 2) // Skip past EndIf and BlockEnd
   };
 }
 

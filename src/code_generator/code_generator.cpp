@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <span>
 #include <vector>
 
 #include <getopt.h>
@@ -20,15 +21,9 @@ struct ProgramOptions {
 
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions;
 
-auto find_all_template_files(std::filesystem::path dir) -> std::vector<std::filesystem::path>;
-
 auto read_full_file(std::filesystem::path file) -> std::string;
 
-auto make_path_to_generated_file(std::filesystem::path templatePath, const ProgramOptions& options)
-    -> std::filesystem::path;
-
-// void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix =
-// "");
+auto make_context(const XmlTag& protocol) -> JinjaContext;
 
 } // namespace ms
 
@@ -36,14 +31,17 @@ int main(int argc, char** argv) {
   const ms::ProgramOptions programOptions = ms::parse_command_line_args(argc, argv);
   const std::string waylandContent = ms::read_full_file(programOptions.pathToWaylandXml);
   ms::XmlTag protocol = ms::parse_wayland_xml(waylandContent);
-  // print_context(context, std::cout, "interfaces");
-  // auto templates = ms::find_all_template_files(programOptions.templateDirectory);
-  // for (auto templatePath : templates) {
-  //   const std::string templateContent = ms::read_full_file(templatePath);
-  //   const auto outputPath = ms::make_path_to_generated_file(templatePath, programOptions);
-  //   std::ofstream out(outputPath.string());
-  //   ms::generate_from_template(context, templateContent, out);
-  // }
+  const std::string templateContent(std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>{});
+  try {
+    ms::JinjaContext context = make_context(protocol);
+    ms::TemplateDocument document = ms::make_document(templateContent, "<stdin>");
+    document.render(context, std::cout);
+  } catch (const ms::RenderError& e) {
+    std::cerr << "Error: " << e.formatted_message(templateContent, "<stdin>") << '\n';
+  } catch (const std::exception& e) {
+    std::cerr << e.what() << '\n';
+  }
 }
 
 namespace ms {
@@ -51,38 +49,15 @@ namespace ms {
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions {
   ProgramOptions result{};
   result.pathToWaylandXml = "/usr/share/wayland/wayland.xml";
-  result.outputDirectory = "./out";
-  result.templateDirectory = "./templates";
-  static ::option long_options[] = {::option{"out-dir", required_argument, nullptr, 0},
-                                    ::option{"templates-dir", required_argument, nullptr, 0},
-                                    ::option{"input", required_argument, nullptr, 0}, ::option{}};
-  std::array<std::filesystem::path*, 3> paths = {&result.outputDirectory, &result.templateDirectory,
-                                                 &result.pathToWaylandXml};
-  const char* short_options = "o:i:d:";
+  static ::option long_options[] = {::option{"input", required_argument, nullptr, 'i'}, ::option{}};
+  const char* short_options = "i:";
   int option_index = 0;
   int parsedShortOpt = ::getopt_long(argc, argv, short_options, long_options, &option_index);
-  std::size_t index = static_cast<std::size_t>(option_index);
   while (parsedShortOpt != -1) {
     switch (parsedShortOpt) {
-    case 0:
-      // long option
-      if (index >= 0 && index < paths.size() && optarg) {
-        *(paths[index]) = optarg;
-      }
-      break;
-    case 'o':
-      if (optarg) {
-        result.outputDirectory = optarg;
-      }
-      break;
     case 'i':
       if (optarg) {
         result.pathToWaylandXml = optarg;
-      }
-      break;
-    case 'd':
-      if (optarg) {
-        result.templateDirectory = optarg;
       }
       break;
     default:
@@ -100,32 +75,102 @@ auto read_full_file(std::filesystem::path file) -> std::string {
   return content;
 }
 
-auto getName(const std::map<std::string, ms::JinjaContext>& object) -> std::string {
-  auto it = object.find("name");
-  if (it != object.end() && it->second.isString()) {
-    return it->second.asString();
+auto make_subcontext(const XmlTag& tag) -> JinjaObject {
+  JinjaObject root;
+  for (const auto& [name, value] : tag.attributes) {
+    root.emplace(name, value);
   }
-  return {};
+  JinjaArray args;
+  JinjaArray entries;
+  for (const XmlNode& node : tag.children) {
+    if (!node.isTag()) {
+      continue;
+    }
+    const XmlTag& child = node.asTag();
+    JinjaObject childObj;
+    for (const auto& [name, value] : child.attributes) {
+      childObj.emplace(name, value);
+    }
+    if (child.name == "description") {
+      for (const auto& text : child.children) {
+        if (text.isText()) {
+          root.emplace("description", text.asText());
+        }
+      }
+    } else if (child.name == "arg") {
+      auto type = childObj.find("type");
+      auto interface = childObj.find("interface");
+      if (type != childObj.end() && interface != childObj.end() &&
+          type->second.asString() == "new_id") {
+        root.emplace("return_type", interface->second);
+      } else {
+        if (type != childObj.end() && interface != childObj.end() &&
+            type->second.asString() == "object") {
+          childObj.erase(type);
+          childObj.emplace("type", "const " + interface->second.asString() + "&");
+        } else if (type != childObj.end() && type->second.asString() == "uint") {
+          childObj.erase(type);
+          childObj.emplace("type", "std::uint32_t");
+        } else if (type != childObj.end() && type->second.asString() == "string") {
+          childObj.erase(type);
+          childObj.emplace("type", "std::string_view");
+        }
+        if (!args.empty()) {
+          childObj.emplace("__tail", "true");
+        }
+        args.emplace_back(std::move(childObj));
+      }
+    } else if (child.name == "entry") {
+      entries.emplace_back(std::move(childObj));
+    }
+  }
+  root.emplace("args", std::move(args));
+  root.emplace("entries", std::move(entries));
+  return root;
 }
 
-// void print_context(const JinjaContext& context, std::ostream& out, const std::string& prefix)
-// {
-//   if (context.isString()) {
-//     out << prefix << " = " << context.asString() << "\n";
-//   } else if (context.isObject()) {
-//     const std::string name = prefix + "." + getName(context.asObject());
-//     // out << "Object " << name << ":\n";
-//     for (const auto& [key, value] : context.asObject()) {
-//       print_context(value, out, name + "." + key);
-//     }
-//   } else if (context.isArray()) {
-//     // out << "Array " << prefix << ":\n";
-//     int index = 0;
-//     for (const auto& item : context.asArray()) {
-//       print_context(item, out, prefix + "[" + std::to_string(index) + "]");
-//       ++index;
-//     }
-//   }
-// }
+auto make_context(const XmlTag& protocol) -> JinjaContext {
+  JinjaObject root;
+  for (const auto& [name, value] : protocol.attributes) {
+    root.emplace(name, value);
+  }
+  JinjaArray interfaces;
+  for (const XmlNode& node : protocol.children) {
+    if (node.isTag()) {
+      const XmlTag& interfaceTag = node.asTag();
+      if (interfaceTag.name != "interface") {
+        continue;
+      }
+      JinjaObject interface;
+      for (const auto& [name, value] : interfaceTag.attributes) {
+        interface.emplace(name, value);
+        JinjaArray requests;
+        JinjaArray events;
+        JinjaArray enums;
+        for (const XmlNode& child : interfaceTag.children) {
+          if (child.isText()) {
+            continue;
+          }
+          const XmlTag& childTag = child.asTag();
+          if (childTag.name == "request") {
+            requests.emplace_back(make_subcontext(childTag));
+          } else if (childTag.name == "event") {
+            JinjaObject obj = make_subcontext(childTag);
+            if (!events.empty()) {
+              obj.emplace("__tail", "true");
+            }
+            events.emplace_back(std::move(obj));
+          }
+        }
+        interface.emplace("requests", std::move(requests));
+        interface.emplace("events", std::move(events));
+        interface.emplace("enums", std::move(enums));
+      }
+      interfaces.emplace_back(std::move(interface));
+    }
+  }
+  root.emplace("interfaces", std::move(interfaces));
+  return JinjaContext(root);
+}
 
 } // namespace ms
