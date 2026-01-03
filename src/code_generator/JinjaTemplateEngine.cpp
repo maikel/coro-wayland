@@ -374,7 +374,7 @@ struct SubstitutionNode {
   }
 
   static auto get_destination_context(const JinjaContext& context, std::string_view identifier,
-                                      Location location) -> const JinjaContext& {
+                                      Location location) -> const JinjaContext* {
     std::size_t index = 0;
     std::string_view prevVar = identifier;
     const JinjaContext* currentContext = &context;
@@ -383,11 +383,12 @@ struct SubstitutionNode {
       std::string nextVar(get_next_identifier(prevVar));
       auto ctx = currentObject->find(nextVar);
       if (!ctx) {
+        return nullptr;
         // auto suggestion = find_closest_match(nextVar, *currentObject);
         // if (suggestion == std::nullopt) {
-        throw RenderError(std::format("Variable '{}' not found in context", nextVar),
-                          offset(location, make_signed(index)),
-                          offset(location, make_signed(index + nextVar.size())));
+        // throw RenderError(std::format("Variable '{}' not found in context", nextVar),
+        //                   offset(location, make_signed(index)),
+        //                   offset(location, make_signed(index + nextVar.size())));
         // }
         // throw RenderError(std::format("Variable '{}' not found in context\nDid you mean '{}'?",
         //                               nextVar, *suggestion),
@@ -396,7 +397,7 @@ struct SubstitutionNode {
       }
       const JinjaContext& nextContext = *ctx;
       if (nextVar.size() == prevVar.size()) {
-        return nextContext;
+        return &nextContext;
       }
       prevVar = prevVar.substr(nextVar.size());
       index += nextVar.size();
@@ -446,7 +447,7 @@ struct SubstitutionNode {
               throw RenderError("Cannot access sub-property of a string variable",
                                 offset(location, make_signed(index + closingBracket + 1)));
             }
-            return arrayItem;
+            return &arrayItem;
           } else {
             assert(arrayItem.isArray());
             currentArray = &arrayItem.asArray();
@@ -458,11 +459,22 @@ struct SubstitutionNode {
         throw RenderError("Unsupported variable type", offset(location, make_signed(index)));
       }
     }
-    return *currentContext;
+    return currentContext;
+  }
+
+  static auto get_destination_context_or_throw(const JinjaContext& context,
+                                               std::string_view identifier, Location location)
+      -> const JinjaContext& {
+    const JinjaContext* destContext = get_destination_context(context, identifier, location);
+    if (!destContext) {
+      throw RenderError(std::format("Variable '{}' not found in context", identifier), location);
+    }
+    return *destContext;
   }
 
   void render(const JinjaContext& context, std::ostream& out) const {
-    const JinjaContext& destContext = get_destination_context(context, identifierPath, location);
+    const JinjaContext& destContext =
+        get_destination_context_or_throw(context, identifierPath, location);
     if (!destContext.isString()) {
       throw RenderError("Substitution variable is not a string", location,
                         offset(location, make_signed(identifierPath.size())));
@@ -479,18 +491,14 @@ struct IfElseNode {
 
   void render(const JinjaContext& context, std::ostream& out) const {
     bool condition = false;
-    try {
-      const JinjaContext& condContext =
-          SubstitutionNode::get_destination_context(context, conditionVariable, location);
-      if (condContext.isString()) {
-        condition = !condContext.asString().empty();
-      } else if (condContext.isArray()) {
-        condition = !condContext.asArray().empty();
-      } else if (condContext.isObject()) {
-        condition = true;
-      }
-    } catch (...) {
-      condition = false;
+    const JinjaContext* condContext =
+        SubstitutionNode::get_destination_context(context, conditionVariable, location);
+    if (condContext && condContext->isString()) {
+      condition = !condContext->asString().empty();
+    } else if (condContext && condContext->isArray()) {
+      condition = !condContext->asArray().empty();
+    } else if (condContext && condContext->isObject()) {
+      condition = true;
     }
     if (condition) {
       trueBranch.render(context, out);
@@ -509,7 +517,7 @@ struct ForEachNode {
 
   void render(const JinjaContext& context, std::ostream& out) const {
     const JinjaContext& loopContext =
-        SubstitutionNode::get_destination_context(context, loopVariable, loopVarLocation);
+        SubstitutionNode::get_destination_context_or_throw(context, loopVariable, loopVarLocation);
     if (!loopContext.isArray()) {
       throw RenderError("For loop variable is not an array", loopVarLocation,
                         offset(loopVarLocation, make_signed(loopVariable.size())));
