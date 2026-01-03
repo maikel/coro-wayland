@@ -6,17 +6,61 @@
 #include <algorithm>
 #include <cassert>
 #include <format>
-#include <mdspan>
+// #include <mdspan>
+#include <map>
 #include <span>
 #include <stdexcept>
 
 namespace ms {
+MapObject::MapObject() = default;
+
+MapObject::MapObject(std::map<std::string, JinjaContext> map) : mMap(std::move(map)) {}
+
+auto MapObject::find(const std::string& key) const -> const JinjaContext* {
+  auto it = mMap.find(key);
+  if (it != mMap.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
+auto JinjaObject::find(const std::string& key) const -> const JinjaContext* {
+  return mFindFunc(mObject, key);
+}
+
+JinjaObject::JinjaObject(std::map<std::string, JinjaContext>&& map)
+    : JinjaObject(MapObject{std::move(map)}) {}
+
+JinjaObject::JinjaObject(const std::map<std::string, JinjaContext>& map)
+    : JinjaObject(MapObject{map}) {}
+
+class ContextObject {
+public:
+  ContextObject() = default;
+  explicit ContextObject(std::map<std::string, JinjaContext> map, const JinjaObject* base)
+      : mMap(std::move(map)), base(base) {}
+
+  auto find(const std::string& key) const -> const JinjaContext* {
+    auto it = mMap.find(key);
+    if (it != mMap.end()) {
+      return &it->second;
+    }
+    return base->find(key);
+  }
+
+private:
+  std::map<std::string, JinjaContext> mMap;
+  const JinjaObject* base;
+};
 
 JinjaContext::JinjaContext(const std::string& string) : mStorage(string) {}
+JinjaContext::JinjaContext(std::string&& string) : mStorage(std::move(string)) {}
 
-JinjaContext::JinjaContext(const std::map<std::string, JinjaContext>& object) : mStorage(object) {}
+JinjaContext::JinjaContext(const JinjaObject& object) : mStorage(object) {}
+JinjaContext::JinjaContext(JinjaObject&& object) : mStorage(std::move(object)) {}
 
-JinjaContext::JinjaContext(const std::vector<JinjaContext>& array) : mStorage(array) {}
+JinjaContext::JinjaContext(const JinjaArray& array) : mStorage(array) {}
+JinjaContext::JinjaContext(JinjaArray&& array) : mStorage(std::move(array)) {}
 
 auto JinjaContext::isString() const noexcept -> bool { return mStorage.index() == 0; }
 
@@ -26,13 +70,15 @@ auto JinjaContext::isArray() const noexcept -> bool { return mStorage.index() ==
 
 auto JinjaContext::asString() const -> const std::string& { return std::get<0>(mStorage); }
 
-auto JinjaContext::asObject() const -> const std::map<std::string, JinjaContext>& {
-  return std::get<1>(mStorage);
-}
+auto JinjaContext::asObject() const -> const JinjaObject& { return std::get<1>(mStorage); }
 
-auto JinjaContext::asArray() const -> const std::vector<JinjaContext>& {
-  return std::get<2>(mStorage);
-}
+auto JinjaContext::asArray() const -> const JinjaArray& { return std::get<2>(mStorage); }
+
+auto JinjaContext::asString() -> std::string& { return std::get<0>(mStorage); }
+
+auto JinjaContext::asObject() -> JinjaObject& { return std::get<1>(mStorage); }
+
+auto JinjaContext::asArray() -> JinjaArray& { return std::get<2>(mStorage); }
 
 RenderError::RenderError(const std::string& message, Location loc, Location endLoc)
     : std::runtime_error(message), mStartLocation(loc), mEndLocation(endLoc) {}
@@ -72,52 +118,53 @@ void TemplateDocument::render(const JinjaContext& context, std::ostream& out) co
 }
 
 namespace {
-auto levenshtein_distance(std::string_view a, std::string_view b) -> std::size_t {
-  std::vector<std::size_t> storage((a.size() + 1) * (b.size() + 1), 0);
-  std::mdspan<std::size_t, std::extents<std::size_t, std::dynamic_extent, std::dynamic_extent>> dp(
-      storage.data(), a.size() + 1, b.size() + 1);
+// auto levenshtein_distance(std::string_view a, std::string_view b) -> std::size_t {
+//   std::vector<std::size_t> storage((a.size() + 1) * (b.size() + 1), 0);
+//   std::mdspan<std::size_t, std::extents<std::size_t, std::dynamic_extent, std::dynamic_extent>>
+//   dp(
+//       storage.data(), a.size() + 1, b.size() + 1);
 
-  // Base cases: distance from empty string
-  for (std::size_t i = 0; i <= a.size(); ++i)
-    dp[i, 0] = i;
-  for (std::size_t j = 0; j <= b.size(); ++j)
-    dp[0, j] = j;
+//   // Base cases: distance from empty string
+//   for (std::size_t i = 0; i <= a.size(); ++i)
+//     dp[i, 0] = i;
+//   for (std::size_t j = 0; j <= b.size(); ++j)
+//     dp[0, j] = j;
 
-  // Fill the matrix
-  for (std::size_t i = 1; i <= a.size(); ++i) {
-    for (std::size_t j = 1; j <= b.size(); ++j) {
-      if (a[i - 1] == b[j - 1]) {
-        dp[i, j] = dp[i - 1, j - 1]; // No edit needed
-      } else {
-        dp[i, j] = 1 + std::min({
-                           dp[i - 1, j],    // Delete from a
-                           dp[i, j - 1],    // Insert into a
-                           dp[i - 1, j - 1] // Replace
-                       });
-      }
-    }
-  }
+//   // Fill the matrix
+//   for (std::size_t i = 1; i <= a.size(); ++i) {
+//     for (std::size_t j = 1; j <= b.size(); ++j) {
+//       if (a[i - 1] == b[j - 1]) {
+//         dp[i, j] = dp[i - 1, j - 1]; // No edit needed
+//       } else {
+//         dp[i, j] = 1 + std::min({
+//                            dp[i - 1, j],    // Delete from a
+//                            dp[i, j - 1],    // Insert into a
+//                            dp[i - 1, j - 1] // Replace
+//                        });
+//       }
+//     }
+//   }
 
-  return dp[a.size(), b.size()];
-}
+//   return dp[a.size(), b.size()];
+// }
 
-auto find_closest_match(std::string_view requested, const JinjaObject& available)
-    -> std::optional<std::string> {
-  std::string bestMatch;
-  std::size_t bestDistance = 2; // Threshold: accept only very close matches
+// auto find_closest_match(std::string_view requested, const JinjaObject& available)
+//     -> std::optional<std::string> {
+//   std::string bestMatch;
+//   std::size_t bestDistance = 2; // Threshold: accept only very close matches
 
-  for (const auto& [key, _] : available) {
-    std::size_t dist = levenshtein_distance(requested, key);
+//   for (const auto& [key, _] : available) {
+//     std::size_t dist = levenshtein_distance(requested, key);
 
-    // Only suggest if similar enough (distance ≤ 2) and better than previous
-    if (dist <= bestDistance && dist < bestDistance) {
-      bestMatch = key;
-      bestDistance = dist;
-    }
-  }
+//     // Only suggest if similar enough (distance ≤ 2) and better than previous
+//     if (dist <= bestDistance && dist < bestDistance) {
+//       bestMatch = key;
+//       bestDistance = dist;
+//     }
+//   }
 
-  return bestDistance < 2 ? std::optional(bestMatch) : std::nullopt;
-}
+//   return bestDistance < 2 ? std::optional(bestMatch) : std::nullopt;
+// }
 
 class TemplateError : public std::runtime_error {
 public:
@@ -382,20 +429,20 @@ struct SubstitutionNode {
     while (!prevVar.empty()) {
       const JinjaObject* currentObject = &currentContext->asObject();
       std::string nextVar(get_next_identifier(prevVar));
-      auto it = currentObject->find(nextVar);
-      if (it == currentObject->end()) {
-        auto suggestion = find_closest_match(nextVar, *currentObject);
-        if (suggestion == std::nullopt) {
-          throw RenderError(std::format("Variable '{}' not found in context", nextVar),
-                            offset(location, make_signed(index)),
-                            offset(location, make_signed(index + nextVar.size())));
-        }
-        throw RenderError(std::format("Variable '{}' not found in context\nDid you mean '{}'?",
-                                      nextVar, *suggestion),
+      auto ctx = currentObject->find(nextVar);
+      if (!ctx) {
+        // auto suggestion = find_closest_match(nextVar, *currentObject);
+        // if (suggestion == std::nullopt) {
+        throw RenderError(std::format("Variable '{}' not found in context", nextVar),
                           offset(location, make_signed(index)),
                           offset(location, make_signed(index + nextVar.size())));
+        // }
+        // throw RenderError(std::format("Variable '{}' not found in context\nDid you mean '{}'?",
+        //                               nextVar, *suggestion),
+        //                   offset(location, make_signed(index)),
+        //                   offset(location, make_signed(index + nextVar.size())));
       }
-      const JinjaContext& nextContext = it->second;
+      const JinjaContext& nextContext = *ctx;
       if (nextVar.size() == prevVar.size()) {
         return nextContext;
       }
@@ -488,7 +535,7 @@ struct IfElseNode {
       } else if (condContext.isArray()) {
         condition = !condContext.asArray().empty();
       } else if (condContext.isObject()) {
-        condition = !condContext.asObject().empty();
+        condition = true;
       }
     } catch (...) {
       condition = false;
@@ -518,10 +565,12 @@ struct ForEachNode {
     const auto& arr = loopContext.asArray();
     std::string itemVarStr(itemVariable);
     for (const JinjaContext& item : arr) {
-      JinjaObject loopBodyContextMap = context.asObject();
-      loopBodyContextMap.erase(itemVarStr);
+      const JinjaObject& loopBodyContextBase = context.asObject();
+      std::map<std::string, JinjaContext> loopBodyContextMap;
       loopBodyContextMap.emplace(itemVarStr, item);
-      JinjaContext loopBodyContext{std::move(loopBodyContextMap)};
+      JinjaObject loopBodyContextObj{
+          ContextObject{std::move(loopBodyContextMap), &loopBodyContextBase}};
+      JinjaContext loopBodyContext{std::move(loopBodyContextObj)};
       body.render(loopBodyContext, out);
     }
   }

@@ -3,13 +3,10 @@
 
 #pragma once
 
-namespace ms::wayland
-{
+namespace ms::wayland {
 
 class connection_handle;
 
-class connection {
+class connection {};
 
-};
-
-}
+} // namespace ms::wayland

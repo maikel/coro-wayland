@@ -4,6 +4,7 @@
 #include "JinjaTemplateEngine.hpp"
 #include "WaylandXmlParser.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -15,8 +16,6 @@
 namespace ms {
 struct ProgramOptions {
   std::filesystem::path pathToWaylandXml;
-  std::filesystem::path templateDirectory;
-  std::filesystem::path outputDirectory;
 };
 
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions;
@@ -75,19 +74,23 @@ auto read_full_file(std::filesystem::path file) -> std::string {
   return content;
 }
 
-auto make_subcontext(const XmlTag& tag) -> JinjaObject {
-  JinjaObject root;
+auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
+  std::map<std::string, JinjaContext> root;
   for (const auto& [name, value] : tag.attributes) {
     root.emplace(name, value);
   }
   JinjaArray args;
   JinjaArray entries;
+  std::size_t count = 0;
   for (const XmlNode& node : tag.children) {
     if (!node.isTag()) {
       continue;
     }
     const XmlTag& child = node.asTag();
-    JinjaObject childObj;
+    std::map<std::string, JinjaContext> childObj;
+    if (count + 1 < tag.children.size()) {
+      childObj.emplace("__not_last", "true");
+    }
     for (const auto& [name, value] : child.attributes) {
       childObj.emplace(name, value);
     }
@@ -118,11 +121,12 @@ auto make_subcontext(const XmlTag& tag) -> JinjaObject {
         if (!args.empty()) {
           childObj.emplace("__tail", "true");
         }
-        args.emplace_back(std::move(childObj));
+        args.emplace_back(JinjaObject{std::move(childObj)});
       }
     } else if (child.name == "entry") {
-      entries.emplace_back(std::move(childObj));
+      entries.emplace_back(JinjaObject{std::move(childObj)});
     }
+    ++count;
   }
   root.emplace("args", std::move(args));
   root.emplace("entries", std::move(entries));
@@ -130,7 +134,7 @@ auto make_subcontext(const XmlTag& tag) -> JinjaObject {
 }
 
 auto make_context(const XmlTag& protocol) -> JinjaContext {
-  JinjaObject root;
+  std::map<std::string, JinjaContext> root;
   for (const auto& [name, value] : protocol.attributes) {
     root.emplace(name, value);
   }
@@ -141,7 +145,7 @@ auto make_context(const XmlTag& protocol) -> JinjaContext {
       if (interfaceTag.name != "interface") {
         continue;
       }
-      JinjaObject interface;
+      std::map<std::string, JinjaContext> interface;
       for (const auto& [name, value] : interfaceTag.attributes) {
         interface.emplace(name, value);
         JinjaArray requests;
@@ -153,24 +157,26 @@ auto make_context(const XmlTag& protocol) -> JinjaContext {
           }
           const XmlTag& childTag = child.asTag();
           if (childTag.name == "request") {
-            requests.emplace_back(make_subcontext(childTag));
+            requests.emplace_back(JinjaObject{make_subcontext(childTag)});
           } else if (childTag.name == "event") {
-            JinjaObject obj = make_subcontext(childTag);
+            std::map<std::string, JinjaContext> obj = make_subcontext(childTag);
             if (!events.empty()) {
               obj.emplace("__tail", "true");
             }
-            events.emplace_back(std::move(obj));
+            events.emplace_back(JinjaObject{std::move(obj)});
+          } else if (childTag.name == "enum") {
+            enums.emplace_back(JinjaObject{make_subcontext(childTag)});
           }
         }
         interface.emplace("requests", std::move(requests));
         interface.emplace("events", std::move(events));
         interface.emplace("enums", std::move(enums));
       }
-      interfaces.emplace_back(std::move(interface));
+      interfaces.emplace_back(JinjaObject{std::move(interface)});
     }
   }
   root.emplace("interfaces", std::move(interfaces));
-  return JinjaContext(root);
+  return JinjaContext(JinjaObject{std::move(root)});
 }
 
 } // namespace ms
