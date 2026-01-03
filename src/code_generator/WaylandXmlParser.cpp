@@ -238,63 +238,11 @@ auto parse_xml_tag(std::span<const Token> tokens) -> ParseXmlResult {
   }
   return ParseXmlResult{root, tokens};
 }
-
-// auto getChildrenArray(const XmlNode& parent, const std::string& childName)
-//     -> std::vector<JinjaContext> {
-//   std::vector<JinjaContext> children;
-//   for (const XmlNode& child : parent.children) {
-//     if (child.name != childName) {
-//       continue;
-//     }
-//     std::map<std::string, JinjaContext> childContext;
-//     for (const auto& [name, value] : child.attributes) {
-//       childContext.emplace(name, JinjaContext(value));
-//     }
-//     std::vector<JinjaContext> argsContext = getChildrenArray(child, "arg");
-//     if (!argsContext.empty()) {
-//       childContext.emplace("args", JinjaContext(argsContext));
-//     }
-//     std::string name = childContext.at("name").asString();
-//     children.push_back(JinjaContext(childContext));
-//   }
-//   return children;
-// }
-
 } // namespace
 
 auto parse_wayland_xml(std::string_view xmlContent) -> XmlTag {
   auto tokens = tokenize(xmlContent);
-  XmlTag root = parse_xml_tag(std::span<const Token>(tokens.data(), tokens.size())).root;
-  return root;
-  // if (root.name != "protocol") {
-  //   throw std::runtime_error("Expected root element to be <protocol>");
-  // }
-  // for (const auto& child : root.children) {
-  //   if (child.name != "interface") {
-  //     continue;
-  //   }
-  //   const XmlNode& interfaceNode = child;
-  //   std::map<std::string, JinjaContext> interfaceContext;
-  //   for (const auto& [name, value] : interfaceNode.attributes) {
-  //     interfaceContext.emplace(name, JinjaContext(value));
-  //   }
-  //   std::vector<JinjaContext> requestsContext = getChildrenArray(interfaceNode, "request");
-  //   if (!requestsContext.empty()) {
-  //     interfaceContext.emplace("requests", JinjaContext(requestsContext));
-  //   }
-  //   std::vector<JinjaContext> eventsContext = getChildrenArray(interfaceNode, "event");
-  //   if (!eventsContext.empty()) {
-  //     interfaceContext.emplace("events", JinjaContext(eventsContext));
-  //   }
-  //   std::vector<JinjaContext> enumsContext = getChildrenArray(interfaceNode, "enum");
-  //   if (!enumsContext.empty()) {
-  //     interfaceContext.emplace("enums", JinjaContext(enumsContext));
-  //   }
-  //   std::string name = interfaceContext.at("name").asString();
-  //   interfaces.push_back(JinjaContext(interfaceContext));
-  // }
-  // JinjaContext context{interfaces};
-  // return context;
+  return parse_xml_tag(std::span<const Token>(tokens.data(), tokens.size())).root;
 }
 
 XmlNode::XmlNode(const std::string& text) : mStorage(text) {}

@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cassert>
 #include <format>
-// #include <mdspan>
 #include <map>
 #include <span>
 #include <stdexcept>
@@ -118,53 +117,6 @@ void TemplateDocument::render(const JinjaContext& context, std::ostream& out) co
 }
 
 namespace {
-// auto levenshtein_distance(std::string_view a, std::string_view b) -> std::size_t {
-//   std::vector<std::size_t> storage((a.size() + 1) * (b.size() + 1), 0);
-//   std::mdspan<std::size_t, std::extents<std::size_t, std::dynamic_extent, std::dynamic_extent>>
-//   dp(
-//       storage.data(), a.size() + 1, b.size() + 1);
-
-//   // Base cases: distance from empty string
-//   for (std::size_t i = 0; i <= a.size(); ++i)
-//     dp[i, 0] = i;
-//   for (std::size_t j = 0; j <= b.size(); ++j)
-//     dp[0, j] = j;
-
-//   // Fill the matrix
-//   for (std::size_t i = 1; i <= a.size(); ++i) {
-//     for (std::size_t j = 1; j <= b.size(); ++j) {
-//       if (a[i - 1] == b[j - 1]) {
-//         dp[i, j] = dp[i - 1, j - 1]; // No edit needed
-//       } else {
-//         dp[i, j] = 1 + std::min({
-//                            dp[i - 1, j],    // Delete from a
-//                            dp[i, j - 1],    // Insert into a
-//                            dp[i - 1, j - 1] // Replace
-//                        });
-//       }
-//     }
-//   }
-
-//   return dp[a.size(), b.size()];
-// }
-
-// auto find_closest_match(std::string_view requested, const JinjaObject& available)
-//     -> std::optional<std::string> {
-//   std::string bestMatch;
-//   std::size_t bestDistance = 2; // Threshold: accept only very close matches
-
-//   for (const auto& [key, _] : available) {
-//     std::size_t dist = levenshtein_distance(requested, key);
-
-//     // Only suggest if similar enough (distance ≤ 2) and better than previous
-//     if (dist <= bestDistance && dist < bestDistance) {
-//       bestMatch = key;
-//       bestDistance = dist;
-//     }
-//   }
-
-//   return bestDistance < 2 ? std::optional(bestMatch) : std::nullopt;
-// }
 
 class TemplateError : public std::runtime_error {
 public:
