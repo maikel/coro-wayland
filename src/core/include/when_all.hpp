@@ -117,8 +117,7 @@ struct WhenAllChildPromise : ConnectablePromise {
   struct FinalSuspendAwaiter {
     static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
 
-    auto await_suspend(std::coroutine_handle<WhenAllChildPromise> handle) noexcept
-        -> void {
+    auto await_suspend(std::coroutine_handle<WhenAllChildPromise> handle) noexcept -> void {
       handle.promise().mState->complete_promise();
     }
 
