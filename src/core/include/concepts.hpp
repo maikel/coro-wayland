@@ -12,8 +12,25 @@ namespace ms {
 template <class Fn, class... Args>
 concept callable = requires(Fn&& fn, Args&&... args) { fn(static_cast<Args &&>(args)...); };
 
+struct ConnectablePromise {
+  template <class Self, class Expression>
+  auto await_transform(this Self& self, Expression&& expr) -> decltype(auto) {
+    if constexpr (requires { std::forward<Expression>(expr).connect(self); }) {
+      return std::forward<Expression>(expr).connect(self);
+    } else if constexpr (requires { std::forward<Expression>(expr).operator co_await(); }) {
+      return std::forward<Expression>(expr).operator co_await();
+    } else {
+      return std::forward<Expression>(expr);
+    }
+  }
+};
+
+template <class Env> struct PromiseWithEnv : ConnectablePromise {
+  auto get_env() const noexcept -> Env;
+};
+
 template <class Awaitable, class Promise>
-auto get_awaiter(Awaitable&& awaitable, Promise& promise) {
+auto get_awaiter(Awaitable&& awaitable, Promise& promise) -> decltype(auto) {
   if constexpr (requires { promise.await_transform(static_cast<Awaitable &&>(awaitable)); }) {
     return promise.await_transform(static_cast<Awaitable&&>(awaitable));
   } else if constexpr (requires { static_cast<Awaitable &&>(awaitable).operator co_await(); }) {

@@ -19,48 +19,37 @@ struct SyncWaitEnv {
   auto query(get_scheduler_t) const noexcept -> IoScheduler { return scheduler; }
 };
 
-template <class ValueType> struct SyncWaitState {
-  IoContext* context;
-  std::mutex mutex;
-  std::variant<std::monostate, std::exception_ptr, ValueType> result;
+struct SyncWaitStateBase {
+  IoContext* mContext;
+  std::atomic<int> mCompletionType{0}; // 0 = not completed, 1 = exception, 2 = value
+  std::exception_ptr mException{nullptr};
+  auto get_env() const noexcept -> SyncWaitEnv { return SyncWaitEnv{mContext->get_scheduler()}; }
+};
 
-  explicit SyncWaitState(IoContext* ctx) : context(ctx) {}
+template <class ValueType> struct SyncWaitState : SyncWaitStateBase {
+  std::optional<ValueType> result;
 
-  auto get_env() const noexcept -> SyncWaitEnv { return SyncWaitEnv{context->get_scheduler()}; }
+  explicit SyncWaitState(IoContext* ctx) : SyncWaitStateBase{ctx} {}
 
   auto get_result() -> std::optional<ValueType> {
-    std::lock_guard lock(mutex);
-    if (result.index() == 1) {
-      std::rethrow_exception(std::get<1>(result));
-    } else if (result.index() == 2) {
-      return std::get<2>(result);
+    int completionType = mCompletionType.load(std::memory_order_acquire);
+    if (completionType == 1 && mException) {
+      std::rethrow_exception(mException);
     } else {
-      return std::nullopt;
+      return std::move(result);
     }
   }
 };
 
-template <> struct SyncWaitState<void> {
-  IoContext* context;
-  std::mutex mutex;
-  std::variant<std::monostate, std::exception_ptr, std::monostate> result;
+template <> struct SyncWaitState<void> : SyncWaitStateBase {
+  explicit SyncWaitState(IoContext* ctx) : SyncWaitStateBase{ctx} {}
 
-  explicit SyncWaitState(IoContext* ctx) : context(ctx) {}
-
-  auto get_env() const noexcept -> SyncWaitEnv { return SyncWaitEnv{context->get_scheduler()}; }
-
-  auto get_result() -> bool {
-    std::lock_guard lock(mutex);
-    if (result.index() == 1) {
-      std::rethrow_exception(std::get<1>(result));
-    }
-    return result.index() == 2;
-  }
+  auto get_result() -> bool { return mCompletionType.load(std::memory_order_acquire) == 2; }
 };
 
-template <class ValueType> struct SyncWaitTask {
-  struct promise_type {
-    explicit promise_type(SyncWaitState<ValueType>* state) : mState(state) {}
+struct SyncWaitTask {
+  struct promise_type : public ConnectablePromise {
+    explicit promise_type(SyncWaitStateBase* state) : mState(state) {}
 
     auto get_return_object() noexcept -> SyncWaitTask {
       return SyncWaitTask{std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -70,73 +59,40 @@ template <class ValueType> struct SyncWaitTask {
 
     auto final_suspend() noexcept -> std::suspend_always { return {}; }
 
-    void return_value(ValueType value) noexcept {
-      std::lock_guard lock(mState->mutex);
-      mState->result.template emplace<2>(std::move(value));
-      mState->context->request_stop();
-    }
+    void return_void() noexcept {}
 
     void unhandled_exception() noexcept {
-      std::lock_guard lock(mState->mutex);
-      mState->result.template emplace<1>(std::current_exception());
-      mState->context->request_stop();
+      mState->mException = std::current_exception();
+      mState->mCompletionType.store(1, std::memory_order_release);
+      mState->mContext->request_stop();
     }
 
     void unhandled_stopped() noexcept {
       // Treat stopped as no result
-      mState->context->request_stop();
+      mState->mContext->request_stop();
     }
 
     auto get_env() const noexcept -> SyncWaitEnv { return mState->get_env(); }
 
-    SyncWaitState<ValueType>* mState;
+    SyncWaitStateBase* mState;
   };
 
-  std::coroutine_handle<promise_type> mHandle;
-};
-
-template <> struct SyncWaitTask<void> {
-  struct promise_type {
-    explicit promise_type(SyncWaitState<void>* state) : mState(state) {}
-
-    auto get_return_object() noexcept -> SyncWaitTask {
-      return SyncWaitTask{std::coroutine_handle<promise_type>::from_promise(*this)};
-    }
-
-    auto initial_suspend() noexcept -> std::suspend_never { return {}; }
-
-    auto final_suspend() noexcept -> std::suspend_always { return {}; }
-
-    void return_void() noexcept {
-      std::lock_guard lock(mState->mutex);
-      mState->result.template emplace<2>();
-      mState->context->request_stop();
-    }
-
-    void unhandled_exception() noexcept {
-      std::lock_guard lock(mState->mutex);
-      mState->result.template emplace<1>(std::current_exception());
-      mState->context->request_stop();
-    }
-
-    void unhandled_stopped() noexcept {
-      // Treat stopped as no result
-      mState->context->request_stop();
-    }
-
-    auto get_env() const noexcept -> SyncWaitEnv { return mState->get_env(); }
-
-    SyncWaitState<void>* mState;
-  };
   std::coroutine_handle<promise_type> mHandle;
 };
 
 template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
-  using ValueType = ms::await_result_t<Awaitable, SyncWaitEnv>;
+  using ValueType = ms::await_result_t<Awaitable, SyncWaitTask::promise_type>;
   IoContext ioContext;
   SyncWaitState<ValueType> state{&ioContext};
-  auto task = [&](SyncWaitState<ValueType>*) -> SyncWaitTask<ValueType> {
-    co_return co_await static_cast<Awaitable&&>(awaitable);
+  auto task = [&](SyncWaitState<ValueType>*) -> SyncWaitTask {
+    if constexpr (std::is_void_v<ValueType>) {
+      co_await static_cast<Awaitable&&>(awaitable);
+      state.mCompletionType.store(2, std::memory_order_release);
+    } else {
+      state.result.emplace(co_await static_cast<Awaitable&&>(awaitable));
+      state.mCompletionType.store(2, std::memory_order_release);
+      state.mContext->request_stop();
+    }
   }(&state);
   ioContext.run();
   task.mHandle.destroy();

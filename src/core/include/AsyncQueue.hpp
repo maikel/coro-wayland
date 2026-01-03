@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "ImmovableBase.hpp"
 #include "IoContext.hpp"
 #include "Task.hpp"
 #include "queries.hpp"
@@ -12,14 +13,8 @@
 
 namespace ms {
 
-template <class Tp> class AsyncQueue {
+template <class Tp> class AsyncQueue : ImmovableBase {
 public:
-  AsyncQueue(const AsyncQueue&) = delete;
-  AsyncQueue& operator=(const AsyncQueue&) = delete;
-  AsyncQueue(AsyncQueue&&) = delete;
-  AsyncQueue& operator=(AsyncQueue&&) = delete;
-  ~AsyncQueue() = default;
-
   explicit AsyncQueue(IoScheduler scheduler) noexcept;
 
   auto push(const Tp& value) -> Task<void>;

@@ -13,3 +13,7 @@ add_test(test_sync_wait test_sync_wait)
 add_executable(test_async_queue test_async_queue.cpp)
 target_link_libraries(test_async_queue MusicStreamer::Core)
 add_test(test_async_queue test_async_queue)
+
+add_executable(test_when_all test_when_all.cpp)
+target_link_libraries(test_when_all MusicStreamer::Core)
+add_test(test_when_all test_when_all)

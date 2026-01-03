@@ -16,7 +16,8 @@ namespace ms {
 
 template <class Query, class QueryResult, class AwaitingPromise> struct WriteEnvTask;
 
-template <class Query, class QueryResult, class AwaitingPromise> class WriteEnvPromise {
+template <class Query, class QueryResult, class AwaitingPromise>
+class WriteEnvPromise : public ConnectablePromise {
 public:
   struct Env;
   struct FinalSuspendAwaiter;
@@ -38,8 +39,6 @@ public:
   void unhandled_exception() noexcept;
 
   void unhandled_stopped() noexcept;
-
-  template <class Self, class Expression> auto await_transform(this Self& self, Expression&& expr);
 
 private:
   QueryResult mResult;
@@ -163,17 +162,6 @@ auto WriteEnvPromise<Query, QueryResult, AwaitingPromise>::final_suspend() noexc
 template <class Query, class QueryResult, class AwaitingPromise>
 void WriteEnvPromise<Query, QueryResult, AwaitingPromise>::unhandled_stopped() noexcept {
   mParentCoro.promise().unhandled_stopped();
-}
-
-template <class Query, class QueryResult, class AwaitingPromise>
-template <class Self, class Expression>
-auto WriteEnvPromise<Query, QueryResult, AwaitingPromise>::await_transform(this Self& self,
-                                                                           Expression&& expr) {
-  if constexpr (requires { std::forward<Expression>(expr).connect(self); }) {
-    return std::forward<Expression>(expr).connect(self);
-  } else {
-    return static_cast<Expression&&>(expr);
-  }
 }
 
 template <class Query, class QueryResult, class AwaitingPromise>

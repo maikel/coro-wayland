@@ -59,6 +59,8 @@ public:
 
   BasicTask(BasicTask&& other) noexcept;
 
+  BasicTask& operator=(BasicTask&& other) noexcept;
+
   explicit BasicTask(std::coroutine_handle<TaskPromise<Tp, Traits>> handle) noexcept;
 
   ~BasicTask();
@@ -256,6 +258,18 @@ template <class Tp> auto TaskResult<Tp>::get_result() -> Tp {
 template <class Tp, class Traits>
 BasicTask<Tp, Traits>::BasicTask(BasicTask&& other) noexcept : mHandle(other.mHandle) {
   other.mHandle = nullptr;
+}
+
+template <class Tp, class Traits>
+BasicTask<Tp, Traits>& BasicTask<Tp, Traits>::operator=(BasicTask<Tp, Traits>&& other) noexcept {
+  if (this != &other) {
+    if (mHandle) {
+      mHandle.destroy();
+    }
+    mHandle = other.mHandle;
+    other.mHandle = nullptr;
+  }
+  return *this;
 }
 
 template <class Tp, class Traits>
