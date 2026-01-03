@@ -64,7 +64,6 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
 
   template <std::size_t Ith, class... Args> auto notify_value(Args&&... args) noexcept -> void {
     std::get<Ith>(mResults).emplace(std::forward<Args>(args)...);
-    complete_promise();
   }
 
   auto notify_exception(std::exception_ptr exception) noexcept -> void {
@@ -73,7 +72,6 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
                                             std::memory_order_relaxed)) {
       mException = exception;
     }
-    complete_promise();
   }
 
   auto notify_stopped() noexcept -> void {
@@ -82,7 +80,6 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
                                             std::memory_order_relaxed)) {
       mStopSource.request_stop();
     }
-    complete_promise();
   }
 
   auto get_env() const noexcept -> Env { return Env{this}; }
@@ -117,7 +114,18 @@ struct WhenAllChildPromise : ConnectablePromise {
 
   auto initial_suspend() noexcept -> std::suspend_always { return {}; }
 
-  auto final_suspend() noexcept -> std::suspend_always { return {}; }
+  struct FinalSuspendAwaiter {
+    static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
+
+    auto await_suspend(std::coroutine_handle<WhenAllChildPromise> handle) noexcept
+        -> void {
+      handle.promise().mState->complete_promise();
+    }
+
+    void await_resume() noexcept {}
+  };
+
+  auto final_suspend() noexcept -> FinalSuspendAwaiter { return {}; }
 
   void unhandled_exception() noexcept { mState->notify_exception(std::current_exception()); }
 
@@ -150,7 +158,8 @@ template <class AwaitingPromise, class... Senders> struct WhenAllAwaiter : priva
             co_await std::forward<ChildSndr>(sender);
             state->template notify_value<Is>();
           } else {
-            state->template notify_value<Is>(co_await std::forward<ChildSndr>(sender));
+            auto result = co_await std::forward<ChildSndr>(sender);
+            state->template notify_value<Is>(std::move(result));
           }
         }(sharedState, std::forward<Sndrs>(sndrs))...);
   }

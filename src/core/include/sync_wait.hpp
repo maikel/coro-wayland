@@ -49,7 +49,8 @@ template <> struct SyncWaitState<void> : SyncWaitStateBase {
 
 struct SyncWaitTask {
   struct promise_type : public ConnectablePromise {
-    explicit promise_type(SyncWaitStateBase* state) : mState(state) {}
+    template <class Awaitable>
+    explicit promise_type(SyncWaitStateBase* state, Awaitable&&) : mState(state) {}
 
     auto get_return_object() noexcept -> SyncWaitTask {
       return SyncWaitTask{std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -84,16 +85,16 @@ template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
   using ValueType = ms::await_result_t<Awaitable, SyncWaitTask::promise_type>;
   IoContext ioContext;
   SyncWaitState<ValueType> state{&ioContext};
-  auto task = [&](SyncWaitState<ValueType>*) -> SyncWaitTask {
+  auto task = [](SyncWaitState<ValueType>* state, Awaitable&& awaitable) -> SyncWaitTask {
     if constexpr (std::is_void_v<ValueType>) {
-      co_await static_cast<Awaitable&&>(awaitable);
-      state.mCompletionType.store(2, std::memory_order_release);
+      co_await std::forward<Awaitable>(awaitable);
+      state->mCompletionType.store(2, std::memory_order_release);
     } else {
-      state.result.emplace(co_await static_cast<Awaitable&&>(awaitable));
-      state.mCompletionType.store(2, std::memory_order_release);
-      state.mContext->request_stop();
+      state->result.emplace(co_await std::forward<Awaitable>(awaitable));
+      state->mCompletionType.store(2, std::memory_order_release);
     }
-  }(&state);
+    state->mContext->request_stop();
+  }(&state, std::forward<Awaitable>(awaitable));
   ioContext.run();
   task.mHandle.destroy();
   return state.get_result();
