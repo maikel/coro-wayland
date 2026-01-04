@@ -39,7 +39,7 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
       return qry(ms::get_env(mState->mHandle.promise()));
     }
 
-    auto query(std::stop_token) const noexcept -> std::stop_token {
+    auto query(ms::get_stop_token_t) const noexcept -> std::stop_token {
       return mState->mStopSource.get_token();
     }
   };
@@ -72,6 +72,7 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
                                             std::memory_order_relaxed)) {
       mException = exception;
     }
+    complete_promise();
   }
 
   auto notify_stopped() noexcept -> void {
@@ -80,6 +81,7 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
                                             std::memory_order_relaxed)) {
       mStopSource.request_stop();
     }
+    complete_promise();
   }
 
   auto get_env() const noexcept -> Env { return Env{this}; }
