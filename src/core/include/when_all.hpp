@@ -181,7 +181,13 @@ template <class AwaitingPromise, class... Senders> struct WhenAllAwaiter : priva
     std::apply([](auto&... childTasks) { (childTasks.mHandle.destroy(), ...); }, mChildTasks);
   }
 
-  static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
+  static constexpr auto await_ready() noexcept -> bool {
+    if constexpr (sizeof...(Senders) == 0) {
+      return true;
+    } else {
+      return false;
+    }
+  }
 
   auto await_suspend(std::coroutine_handle<AwaitingPromise>) noexcept -> void {
     std::apply([](auto&... childTasks) { (childTasks.mHandle.resume(), ...); }, mChildTasks);
