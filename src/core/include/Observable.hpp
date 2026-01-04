@@ -27,7 +27,7 @@ public:
                { r.next(std::move(task)) } noexcept;
              })
   ObservableReceiver(Receiver&& receiver) noexcept : mValue(std::forward<Receiver>(receiver)) {
-    mNextFunc = [](std::any& value, IoTask<Tp>&& task) noexcept -> IoTask<void> {
+    mNextFunc = [](std::any& value, IoTask<Tp> task) noexcept -> IoTask<void> {
       Receiver& r = std::any_cast<Receiver&>(value);
       return r.next(std::move(task));
     };
@@ -38,22 +38,27 @@ public:
                { fn(std::move(task)) } noexcept -> std::same_as<IoTask<void>>;
              })
   ObservableReceiver(Fn&& fn) noexcept : mValue(std::forward<Fn>(fn)) {
-    mNextFunc = [](std::any& value, IoTask<Tp>&& task) noexcept -> IoTask<void> {
+    mNextFunc = [](std::any& value, IoTask<Tp> task) noexcept -> IoTask<void> {
       Fn& f = std::any_cast<Fn&>(value);
       return f(std::move(task));
     };
   }
 
-  auto next(IoTask<Tp>&& task) noexcept -> IoTask<void> {
+  auto next(IoTask<Tp> task) noexcept -> IoTask<void> {
     return mNextFunc(mValue, std::move(task));
   }
 
 private:
   std::any mValue;
-  auto (*mNextFunc)(std::any&, IoTask<Tp>&&) noexcept -> IoTask<void> = nullptr;
+  auto (*mNextFunc)(std::any&, IoTask<Tp>) noexcept -> IoTask<void> = nullptr;
 };
 
 template <class Tp> class Observable {
+private:
+  struct Model {
+    virtual ~Model() = default;
+    virtual auto subscribe(ObservableReceiver<Tp> receiver) noexcept -> IoTask<void> = 0;
+  };
 public:
   Observable() = delete;
 
@@ -71,22 +76,26 @@ public:
                  std::move(obs).subscribe(std::move(receiver))
                } noexcept -> std::same_as<IoTask<void>>;
              })
-  explicit Observable(ObservableLike&& observable) noexcept
-      : mValue(std::forward<ObservableLike>(observable)) {
-    mSubscribeFunc = [](std::any& value,
-                        ObservableReceiver<Tp>&& receiver) noexcept -> IoTask<void> {
-      ObservableLike& ob = std::any_cast<ObservableLike&>(value);
-      return std::move(ob).subscribe(std::move(receiver));
+  Observable(ObservableLike&& observable) noexcept {
+    struct ObserverLikeModel final : Model {
+      explicit ObserverLikeModel(ObservableLike&& obs) noexcept
+          : mObservable(std::forward<ObservableLike>(obs)) {}
+      auto subscribe(ObservableReceiver<Tp> receiver) noexcept -> IoTask<void> override {
+        return std::move(mObservable).subscribe(std::move(receiver));
+      }
+    private:
+      ObservableLike mObservable;
     };
+    mValue = std::make_unique<ObserverLikeModel>(std::forward<ObservableLike>(observable));
   }
 
   auto subscribe(ObservableReceiver<Tp> receiver) && noexcept -> IoTask<void> {
-    return mSubscribeFunc(mValue, std::move(receiver));
+    auto value{std::move(mValue)};
+    return value->subscribe(std::move(receiver));
   }
 
 private:
-  std::any mValue;
-  auto (*mSubscribeFunc)(std::any&, ObservableReceiver<Tp>&&) noexcept -> IoTask<void> = nullptr;
+  std::unique_ptr<Model> mValue;
 };
 
 } // namespace ms

@@ -31,6 +31,14 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Launch test_observable",
+            "program": "${workspaceFolder}/build/src/core/tests/test_observable",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Launch test_jinja_template_engine",
             "program": "${workspaceFolder}/build/src/code_generator/tests/test_jinja_template_engine",
             "args": [],
