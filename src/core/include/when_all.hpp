@@ -71,8 +71,8 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
     if (mResultType.compare_exchange_strong(expected, 1, std::memory_order_release,
                                             std::memory_order_relaxed)) {
       mException = exception;
+      mStopSource.request_stop();
     }
-    complete_promise();
   }
 
   auto notify_stopped() noexcept -> void {
@@ -186,7 +186,7 @@ template <class AwaitingPromise, class... Senders> struct WhenAllAwaiter : priva
   auto await_suspend(std::coroutine_handle<AwaitingPromise>) noexcept -> void {
     std::apply([](auto&... childTasks) { (childTasks.mHandle.resume(), ...); }, mChildTasks);
   }
-  auto await_resume() noexcept { return mSharedState.get_results(); }
+  auto await_resume() { return mSharedState.get_results(); }
 };
 
 template <class... Senders> struct WhenAllSender {

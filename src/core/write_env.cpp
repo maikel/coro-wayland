@@ -20,7 +20,7 @@ auto WriteEnvAwaiter<void>::await_suspend(std::coroutine_handle<>) noexcept
   return mHandle;
 }
 
-auto WriteEnvAwaiter<void>::await_resume() noexcept -> void {
+auto WriteEnvAwaiter<void>::await_resume() -> void {
   if (mException) {
     std::rethrow_exception(mException);
   }

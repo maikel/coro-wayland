@@ -83,7 +83,7 @@ public:
 
   auto await_suspend(std::coroutine_handle<>) noexcept -> std::coroutine_handle<>;
 
-  auto await_resume() noexcept -> Tp;
+  auto await_resume() -> Tp;
 
 private:
   std::variant<std::monostate, std::exception_ptr, Tp> mReturnValue;
@@ -102,7 +102,7 @@ public:
 
   auto await_suspend(std::coroutine_handle<>) noexcept -> std::coroutine_handle<>;
 
-  auto await_resume() noexcept -> void;
+  auto await_resume() -> void;
 
 private:
   std::exception_ptr mException;
@@ -247,7 +247,7 @@ auto WriteEnvAwaiter<Tp>::await_suspend(std::coroutine_handle<>) noexcept
   return mHandle;
 }
 
-template <class Tp> auto WriteEnvAwaiter<Tp>::await_resume() noexcept -> Tp {
+template <class Tp> auto WriteEnvAwaiter<Tp>::await_resume() -> Tp {
   if (mReturnValue.index() == 1) {
     std::rethrow_exception(std::get<1>(mReturnValue));
   } else {

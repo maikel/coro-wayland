@@ -99,4 +99,6 @@ int main() {
   test_multiple_delays();
   test_stopped_first_delay();
   test_stopped_last_delay();
+  test_exception_first_delay();
+  test_exception_last_delay();
 }
