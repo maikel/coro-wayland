@@ -25,3 +25,7 @@ add_test(test_when_any test_when_any)
 add_executable(test_observable test_observable.cpp)
 target_link_libraries(test_observable MusicStreamer::Core)
 add_test(test_observable test_observable)
+
+add_executable(test_async_scope test_async_scope.cpp)
+target_link_libraries(test_async_scope MusicStreamer::Core)
+add_test(test_async_scope test_async_scope)

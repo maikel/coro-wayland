@@ -51,7 +51,14 @@
             "program": "${workspaceFolder}/build/src/core/tests/test_sync_wait",
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_async_scope",
+            "program": "${workspaceFolder}/build/src/core/tests/test_async_scope",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
-    
     ]
 }

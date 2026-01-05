@@ -9,14 +9,9 @@ namespace ms::observables {
 
 class EmptyObservable {
 public:
-    template <class Tp>
-    auto subscribe(ms::ObservableReceiver<Tp>) noexcept -> ms::IoTask<void> {
-        co_return;
-    }
+  auto subscribe(auto) noexcept -> ms::IoTask<void> { co_return; }
 };
 
-inline auto empty() noexcept -> EmptyObservable {
-    return EmptyObservable{};
-}
+inline auto empty() noexcept -> EmptyObservable { return EmptyObservable{}; }
 
 } // namespace ms::observables
