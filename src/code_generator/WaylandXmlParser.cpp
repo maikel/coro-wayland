@@ -212,7 +212,7 @@ auto parse_xml_tag(std::span<const Token> tokens) -> ParseXmlResult {
   tokens = tokens.subspan(tag.size());
   if (tag.back().type == Token::Type::SelfClose) {
     // Self-closing tag, no children or text
-    return ParseXmlResult{root, tokens};
+    return ParseXmlResult{std::move(root), tokens};
   }
   while (!tokens.empty() && tokens[0].type != Token::Type::OpenCloseTag) {
     if (tokens[0].type == Token::Type::OpenTag) {
@@ -236,7 +236,7 @@ auto parse_xml_tag(std::span<const Token> tokens) -> ParseXmlResult {
   } else {
     throw std::runtime_error("Expected close tag token");
   }
-  return ParseXmlResult{root, tokens};
+  return ParseXmlResult{std::move(root), tokens};
 }
 } // namespace
 
