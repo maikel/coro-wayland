@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "queries.hpp"
+
 #include <coroutine>
 #include <optional>
 #include <utility>

@@ -173,7 +173,7 @@ void IoContext::run() noexcept try {
 
     if (pollFds[0].revents & POLLIN) {
       uint64_t value;
-      (void) ::read(mWakeupHandle, &value, sizeof(value));
+      (void)::read(mWakeupHandle, &value, sizeof(value));
     }
 
     // Process poll results: iterate both vectors in lockstep

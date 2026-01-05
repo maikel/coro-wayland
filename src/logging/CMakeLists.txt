@@ -1,0 +1,3 @@
+add_library(MusicStreamer_logging Logging.cpp)
+target_include_directories(MusicStreamer_logging PUBLIC include)
+add_library(MusicStreamer::logging ALIAS MusicStreamer_logging)
