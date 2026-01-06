@@ -14,6 +14,7 @@ int main() {
   ms::wayland::Connection connection;
   ms::sync_wait(connection.run().subscribe([](auto handle) noexcept -> ms::IoTask<void> {
     ms::wayland::ConnectionHandle connHandle = co_await std::move(handle);
+    //ms::wayland::Display display{ms::wayland::ObjectId::Display, connHandle};
     ms::Log::i("Connected to Wayland server.");
     ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
     co_await scheduler.schedule_after(std::chrono::years(1));

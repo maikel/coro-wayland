@@ -145,6 +145,9 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
       } else if (type != childObj.end() && type->second.asString() == "uint") {
         childObj.erase(type);
         childObj.emplace("type", "std::uint32_t");
+      } else if (type != childObj.end() && type->second.asString() == "int") {
+        childObj.erase(type);
+        childObj.emplace("type", "std::int32_t");
       } else if (type != childObj.end() && type->second.asString() == "string") {
         childObj.erase(type);
         childObj.emplace("type", "std::string_view");
@@ -204,7 +207,9 @@ auto make_context(const XmlTag& protocol) -> JinjaContext {
         }
         const XmlTag& childTag = child.asTag();
         if (childTag.name == "request") {
-          requests.emplace_back(JinjaObject{make_subcontext(childTag)});
+          auto map = make_subcontext(childTag);
+          map.emplace("num", std::to_string(requests.size()));
+          requests.emplace_back(JinjaObject{std::move(map)});
         } else if (childTag.name == "event") {
           std::map<std::string, JinjaContext> obj = make_subcontext(childTag);
           std::string name = obj.at("cppname").asString();

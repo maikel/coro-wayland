@@ -94,9 +94,9 @@ public:
       } else {
         Log::d("Socket has no errors, connection established.");
       }
-      auto handle = [](Connection* connection) -> IoTask<ConnectionHandle> {
-        co_return ConnectionHandle(connection);
-      }(connection);
+      auto handle = [](Connection* connection, IoScheduler scheduler) -> IoTask<ConnectionHandle> {
+        co_return ConnectionHandle(connection, scheduler);
+      }(connection, scheduler);
       std::exception_ptr exception = nullptr;
       bool stopped = false;
       try {
@@ -126,18 +126,13 @@ public:
 private:
   static constexpr std::size_t kMinMessageSize = 8;
 
-  struct RecvMessageResult {
-    std::size_t bytesRead;
-    std::size_t controlBytesRead;
-  };
-
-  static auto recv_at_least(Connection* connection, size_t minBytes, std::span<char> buffer,
-                            std::span<char> controlBuffer) -> IoTask<RecvMessageResult> {
+  static auto recv_at_least(Connection* connection, size_t minBytes, std::span<char> buffer)
+      -> IoTask<std::size_t> {
+    char controlBuffer[256];
+    std::span<char> controlBufferSpan(controlBuffer);
     IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
     std::size_t totalBytesRead = 0;
-    std::size_t totalControlBytesRead = 0;
     std::span<char> remainingBuffer = buffer;
-    std::span<char> remainingControlBuffer = controlBuffer;
     while (totalBytesRead < minBytes) {
       ::msghdr msg{};
       ::iovec iov{};
@@ -145,15 +140,29 @@ private:
       iov.iov_len = remainingBuffer.size();
       msg.msg_iov = &iov;
       msg.msg_iovlen = 1;
-      msg.msg_control = remainingControlBuffer.data();
-      msg.msg_controllen = remainingControlBuffer.size();
+      msg.msg_control = controlBufferSpan.data();
+      msg.msg_controllen = controlBufferSpan.size();
       ssize_t rc = ::recvmsg(connection->get_fd(), &msg, 0);
       if (rc > 0) {
         std::size_t bytesRead = static_cast<std::size_t>(rc);
         totalBytesRead += bytesRead;
-        totalControlBytesRead += msg.msg_controllen;
         remainingBuffer = remainingBuffer.subspan(bytesRead);
-        remainingControlBuffer = remainingControlBuffer.subspan(msg.msg_controllen);
+        // Process any received file descriptors
+        for (::cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr;
+             cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+          if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            std::size_t fdCount = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+            int* fds = reinterpret_cast<int*>(CMSG_DATA(cmsg));
+            for (std::size_t i = 0; i < fdCount; ++i) {
+              int fd = fds[i];
+              Log::d("Received file descriptor {} from Wayland socket", fd);
+              connection->mReceivedFileDescriptors.emplace(fd);
+            }
+          } else {
+            Log::d("Received unknown control message of level {} and type {}", cmsg->cmsg_level,
+                   cmsg->cmsg_type);
+          }
+        }
       } else if (rc == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           co_await scheduler.poll(connection->get_fd(), POLLIN);
@@ -167,20 +176,14 @@ private:
         break;
       }
     }
-    RecvMessageResult result{};
-    result.bytesRead = totalBytesRead;
-    result.controlBytesRead = totalControlBytesRead;
-    co_return result;
+    co_return totalBytesRead;
   }
 
   static auto recv_messages(Connection* connection) -> IoTask<void> {
+    char buffer[4096];
+    std::size_t bytesRead = co_await recv_at_least(connection, kMinMessageSize, buffer);
+    Log::d("Received {} bytes from Wayland socket", bytesRead);
     while (true) {
-      char buffer[4096];
-      char controlBuffer[256];
-      auto [bytesRead, controlBytesRead] =
-          co_await recv_at_least(connection, kMinMessageSize, buffer, controlBuffer);
-      Log::d("Received {} data bytes and {} control bytes from Wayland socket", bytesRead,
-             controlBytesRead);
       assert(bytesRead >= kMinMessageSize);
       std::uint32_t objectId{};
       std::uint32_t MessageLengthAndOpCode{};
@@ -192,18 +195,12 @@ private:
              messageLength);
       if (messageLength > bytesRead) {
         std::span<char> bufferSpan(buffer);
-        std::span<char> controlBufferSpan(controlBuffer);
         bufferSpan = bufferSpan.subspan(bytesRead);
-        controlBufferSpan = controlBufferSpan.subspan(controlBytesRead);
-        auto [additionalBytesRead, additionalControlBytesRead] = co_await recv_at_least(
-            connection, messageLength - bytesRead, bufferSpan, controlBufferSpan);
+        std::size_t additionalBytesRead =
+            co_await recv_at_least(connection, messageLength - bytesRead, bufferSpan);
         bytesRead += additionalBytesRead;
-        controlBytesRead += additionalControlBytesRead;
-        Log::d("Received additional {} data bytes and {} control bytes from Wayland socket",
-               additionalBytesRead, additionalControlBytesRead);
-        Log::d(
-            "Finally received {} data bytes and {} control bytes for the complete message header",
-            messageLength, controlBytesRead);
+        Log::d("Received additional {} bytes and a total of {} bytes from Wayland socket",
+               additionalBytesRead, bytesRead);
       }
       std::span<const char> message(buffer, messageLength);
       auto proxyIt = connection->mProxies.find(static_cast<ObjectId>(objectId));
@@ -229,5 +226,184 @@ auto Connection::close() -> Task<void> { co_await mScope.close(); }
 auto ConnectionHandle::register_interface(ProxyInterface* proxy) -> void {
   mConnection->mProxies[proxy->get_object_id()] = proxy;
 }
+
+auto ConnectionHandle::read_next_file_descriptor() -> FileDescriptorHandle {
+  if (mConnection->mReceivedFileDescriptors.empty()) {
+    throw std::runtime_error("No received file descriptors available");
+  }
+  FileDescriptorHandle fdHandle = mConnection->mReceivedFileDescriptors.front();
+  mConnection->mReceivedFileDescriptors.pop();
+  return fdHandle;
+}
+
+FileDescriptorHandle::FileDescriptorHandle(int handle) : mNativeHandle(handle) {}
+
+auto FileDescriptorHandle::native_handle() const noexcept -> int { return mNativeHandle; }
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::string_view& arg)
+    -> std::span<const char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to extract string argument");
+  }
+  std::uint32_t length = 0;
+  std::memcpy(&length, buffer.data(), sizeof(std::uint32_t));
+  buffer = buffer.subspan(sizeof(std::uint32_t));
+  if (buffer.size() < length) {
+    throw std::runtime_error("Buffer too small to extract string argument data");
+  }
+  arg = std::string_view(buffer.data(), length);
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (length + n) & ~n;
+  return buffer.subspan(paddedLength);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
+                                                std::span<const char>& arg)
+    -> std::span<const char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to extract array argument");
+  }
+  std::uint32_t length = 0;
+  std::memcpy(&length, buffer.data(), sizeof(std::uint32_t));
+  buffer = buffer.subspan(sizeof(std::uint32_t));
+  if (buffer.size() < length) {
+    throw std::runtime_error("Buffer too small to extract array argument data");
+  }
+  arg = buffer.subspan(0, length);
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (length + n) & ~n;
+  return buffer.subspan(paddedLength);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::int32_t& arg)
+    -> std::span<const char> {
+  if (buffer.size() < sizeof(std::int32_t)) {
+    throw std::runtime_error("Buffer too small to extract int32 argument");
+  }
+  std::memcpy(&arg, buffer.data(), 4);
+  return buffer.subspan(4);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::uint32_t& arg)
+    -> std::span<const char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to extract uint32 argument");
+  }
+  std::memcpy(&arg, buffer.data(), 4);
+  return buffer.subspan(4);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, ObjectId& arg)
+    -> std::span<const char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to extract ObjectId argument");
+  }
+  std::uint32_t rawId = 0;
+  std::memcpy(&rawId, buffer.data(), 4);
+  arg = static_cast<ObjectId>(rawId);
+  return buffer.subspan(4);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
+                                                FileDescriptorHandle& arg)
+    -> std::span<const char> {
+  arg = read_next_file_descriptor();
+  return buffer;
+}
+
+auto ConnectionHandle::message_length(std::string_view arg) -> std::uint16_t {
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (arg.size() + n) & ~n;
+  return static_cast<std::uint16_t>(sizeof(std::uint32_t) + paddedLength);
+}
+
+auto ConnectionHandle::message_length(std::span<const char> arg) -> std::uint16_t {
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (arg.size() + n) & ~n;
+  return static_cast<std::uint16_t>(sizeof(std::uint32_t) + paddedLength);
+}
+
+auto ConnectionHandle::message_length(std::int32_t) -> std::uint16_t {
+  return sizeof(std::int32_t);
+}
+
+auto ConnectionHandle::message_length(std::uint32_t) -> std::uint16_t {
+  return sizeof(std::uint32_t);
+}
+
+auto ConnectionHandle::message_length(ObjectId) -> std::uint16_t { return sizeof(std::uint32_t); }
+
+auto ConnectionHandle::message_length(FileDescriptorHandle) -> std::uint16_t { return 0; }
+
+auto ConnectionHandle::message_length(const ProxyInterface*) -> std::uint16_t {
+  return sizeof(std::uint32_t);
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, std::string_view arg)
+    -> std::span<char> {
+  std::span<const char> strContent(arg.data(), arg.size() + 1); // include null terminator
+  return put_arg_to_message(buffer, strContent);
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, std::span<const char> arg)
+    -> std::span<char> {
+  if (buffer.size() < sizeof(std::uint32_t) + arg.size()) {
+    throw std::runtime_error("Buffer too small to put array argument");
+  }
+  std::uint32_t length = static_cast<std::uint32_t>(arg.size());
+  std::memcpy(buffer.data(), &length, sizeof(std::uint32_t));
+  buffer = buffer.subspan(sizeof(std::uint32_t));
+  std::memcpy(buffer.data(), arg.data(), arg.size());
+  buffer = buffer.subspan(arg.size());
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (length + n) & ~n;
+  std::size_t padding = paddedLength - length;
+  if (padding > 0) {
+    std::memset(buffer.data(), 0, padding);
+    buffer = buffer.subspan(padding);
+  }
+  return buffer;
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, std::int32_t arg)
+    -> std::span<char> {
+  if (buffer.size() < sizeof(std::int32_t)) {
+    throw std::runtime_error("Buffer too small to put int32 argument");
+  }
+  std::memcpy(buffer.data(), &arg, sizeof(std::int32_t));
+  return buffer.subspan(sizeof(std::int32_t));
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, std::uint32_t arg)
+    -> std::span<char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to put uint32 argument");
+  }
+  std::memcpy(buffer.data(), &arg, sizeof(std::uint32_t));
+  return buffer.subspan(sizeof(std::uint32_t));
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, ObjectId arg) -> std::span<char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to put ObjectId argument");
+  }
+  std::uint32_t rawId = static_cast<std::uint32_t>(arg);
+  std::memcpy(buffer.data(), &rawId, sizeof(std::uint32_t));
+  return buffer.subspan(sizeof(std::uint32_t));
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, FileDescriptorHandle)
+    -> std::span<char> {
+  return buffer;
+}
+
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const ProxyInterface* proxy) -> std::span<char> {
+  ObjectId objectId = proxy->get_object_id();
+  return put_arg_to_message(buffer, objectId);
+}
+
+auto ConnectionHandle::get_next_object_id() -> ObjectId {
+    return static_cast<ObjectId>(mConnection->mNextObjectId.fetch_add(1));
+  }
 
 } // namespace ms::wayland

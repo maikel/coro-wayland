@@ -25,7 +25,7 @@ namespace ms::wayland {
 {% endfor %}
 
 {% for interface in interfaces %}
-class {{ interface.cppname }} : private ProxyInterface {
+class {{ interface.cppname }} : public ProxyInterface {
 public:
 {% for entry in interface.enums %}
 {% if entry.description %}/** @brief {{ entry.description }} */{% endif %}
@@ -57,8 +57,7 @@ public:
 {% endfor %}
 private:
   auto handle_message(std::span<const char> message) -> IoTask<void> override;
-
-  ConnectionHandle mConnection;{% if interface.events %}
+  {% if interface.events %}
   AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
 };
 {% endfor %}
