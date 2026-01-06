@@ -12,47 +12,52 @@
 #pragma once
 
 #include "AsyncQueue.hpp"
-#include "wayland/connection.hpp"
+#include "wayland/Connection.hpp"
 
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <variant>
 
 namespace ms::wayland {
 
-class wl_display;
-class wl_registry;
-class wl_callback;
-class wl_compositor;
-class wl_shm_pool;
-class wl_shm;
-class wl_buffer;
-class wl_data_offer;
-class wl_data_source;
-class wl_data_device;
-class wl_data_device_manager;
-class wl_shell;
-class wl_shell_surface;
-class wl_surface;
-class wl_seat;
-class wl_pointer;
-class wl_keyboard;
-class wl_touch;
-class wl_output;
-class wl_region;
-class wl_subcompositor;
-class wl_subsurface;
+class Display;
+class Registry;
+class Callback;
+class Compositor;
+class ShmPool;
+class Shm;
+class Buffer;
+class DataOffer;
+class DataSource;
+class DataDevice;
+class DataDeviceManager;
+class Shell;
+class ShellSurface;
+class Surface;
+class Seat;
+class Pointer;
+class Keyboard;
+class Touch;
+class Output;
+class Region;
+class Subcompositor;
+class Subsurface;
 
-class wl_display {
+class Display : private ProxyInterface {
 public:
   /** @brief These errors are global and can be emitted in response to any
           server request.
          */
-  enum class error : uint32_t {
+  enum class Error : uint32_t {
     invalid_object = 0,
     invalid_method = 1,
     no_memory = 2,
     implementation = 3
   };
+
+  Display(ObjectId objectId, ConnectionHandle connection);
+  ~Display();
 
   /** @brief The error event is sent out when a fatal (non-recoverable)
           error has occurred.  The object_id argument is the object
@@ -62,7 +67,11 @@ public:
           own set of error codes.  The message is a brief description
           of the error, for (debugging) convenience.
          */
-  struct error;
+  struct ErrorEvent {
+    ObjectId object_id;
+    std::uint32_t code;
+    std::string_view message;
+  };
 
   /** @brief This event is used internally by the object ID management
           logic. When a client deletes an object that it had created,
@@ -70,9 +79,11 @@ public:
           seen the delete request. When the client receives this event,
           it will know that it can safely reuse the object ID.
          */
-  struct delete_id;
+  struct DeleteIdEvent {
+    std::uint32_t id;
+  };
 
-  auto events() -> Observable<error, delete_id>;
+  auto events() -> Observable<std::variant<ErrorEvent, DeleteIdEvent>>;
 
   /** @brief The sync request asks the server to emit the 'done' event
         on the returned wl_callback object.  Since requests are
@@ -86,7 +97,7 @@ public:
 
         The callback_data passed in the callback is the event serial.
        */
-  auto sync() -> wl_callback;
+  auto sync() -> Callback;
 
   /** @brief This request creates a registry object that allows the client
         to list and bind the global objects available from the
@@ -98,22 +109,31 @@ public:
         Therefore, clients should invoke get_registry as infrequently as
         possible to avoid wasting memory.
        */
-  auto get_registry() -> wl_registry;
+  auto get_registry() -> Registry;
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<error, delete_id> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<ErrorEvent, DeleteIdEvent>> mEventQueue;
 };
 
-class wl_registry {
+class Registry : private ProxyInterface {
 public:
+  Registry(ObjectId objectId, ConnectionHandle connection);
+  ~Registry();
+
   /** @brief Notify the client of global objects.
 
           The event notifies the client that a global object with
           the given name is now available, and it implements the
           given version of the given interface.
          */
-  struct global;
+  struct GlobalEvent {
+    std::uint32_t name;
+    std::string_view interface;
+    std::uint32_t version;
+  };
 
   /** @brief Notify the client of removed global objects.
 
@@ -126,49 +146,68 @@ public:
           ignored until the client destroys it, to avoid races between
           the global going away and a client sending a request to it.
          */
-  struct global_remove;
+  struct GlobalRemoveEvent {
+    std::uint32_t name;
+  };
 
-  auto events() -> Observable<global, global_remove>;
+  auto events() -> Observable<std::variant<GlobalEvent, GlobalRemoveEvent>>;
 
   /** @brief Binds a new, client-created object to the server using the
         specified name as the identifier.
        */
-  void bind(std::uint32_t name, new_id id);
+  void bind(std::uint32_t name, ObjectId id);
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<global, global_remove> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<GlobalEvent, GlobalRemoveEvent>> mEventQueue;
 };
 
-class wl_callback {
+class Callback : private ProxyInterface {
 public:
+  Callback(ObjectId objectId, ConnectionHandle connection);
+  ~Callback();
+
   /** @brief Notify the client when the related request is done.
    */
-  struct done;
+  struct DoneEvent {
+    std::uint32_t callback_data;
+  };
 
-  auto events() -> Observable<done>;
+  auto events() -> Observable<std::variant<DoneEvent>>;
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<done> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<DoneEvent>> mEventQueue;
 };
 
-class wl_compositor {
+class Compositor : private ProxyInterface {
 public:
+  Compositor(ObjectId objectId, ConnectionHandle connection);
+  ~Compositor();
+
   /** @brief Ask the compositor to create a new surface.
    */
-  auto create_surface() -> wl_surface;
+  auto create_surface() -> Surface;
 
   /** @brief Ask the compositor to create a new region.
    */
-  auto create_region() -> wl_region;
+  auto create_region() -> Region;
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_shm_pool {
+class ShmPool : private ProxyInterface {
 public:
+  ShmPool(ObjectId objectId, ConnectionHandle connection);
+  ~ShmPool();
+
   /** @brief Create a wl_buffer object from the pool.
 
         The buffer is created offset bytes into the pool and has
@@ -181,8 +220,7 @@ public:
         so it is valid to destroy the pool immediately after creating
         a buffer from it.
        */
-  auto create_buffer(int offset, int width, int height, int stride, std::uint32_t format)
-      -> wl_buffer;
+  auto create_buffer(int offset, int width, int height, int stride, std::uint32_t format) -> Buffer;
 
   /** @brief Destroy the shared memory pool.
 
@@ -206,14 +244,16 @@ public:
   void resize(int size);
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_shm {
+class Shm : private ProxyInterface {
 public:
   /** @brief These errors can be emitted in response to wl_shm requests.
    */
-  enum class error : uint32_t { invalid_format = 0, invalid_stride = 1, invalid_fd = 2 };
+  enum class Error : uint32_t { invalid_format = 0, invalid_stride = 1, invalid_fd = 2 };
 
   /** @brief This describes the memory layout of an individual pixel.
 
@@ -228,7 +268,7 @@ public:
           For all wl_shm formats and unless specified in another protocol
           extension, pre-multiplied alpha is used for pixel values.
          */
-  enum class format : uint32_t {
+  enum class Format : uint32_t {
     argb8888 = 0,
     xrgb8888 = 1,
     c8 = 0x20203843,
@@ -339,13 +379,18 @@ public:
     abgr16161616 = 0x38344241
   };
 
+  Shm(ObjectId objectId, ConnectionHandle connection);
+  ~Shm();
+
   /** @brief Informs the client about a valid pixel format that
           can be used for buffers. Known formats include
           argb8888 and xrgb8888.
          */
-  struct format;
+  struct FormatEvent {
+    std::uint32_t format;
+  };
 
-  auto events() -> Observable<format>;
+  auto events() -> Observable<std::variant<FormatEvent>>;
 
   /** @brief Create a new wl_shm_pool object.
 
@@ -353,15 +398,20 @@ public:
         objects.  The server will mmap size bytes of the passed file
         descriptor, to use as backing memory for the pool.
        */
-  auto create_pool(fd fd, int size) -> wl_shm_pool;
+  auto create_pool(FileDescriptorHandle fd, int size) -> ShmPool;
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<format> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<FormatEvent>> mEventQueue;
 };
 
-class wl_buffer {
+class Buffer : private ProxyInterface {
 public:
+  Buffer(ObjectId objectId, ConnectionHandle connection);
+  ~Buffer();
+
   /** @brief Sent when this wl_buffer is no longer used by the compositor.
           The client is now free to reuse or destroy this buffer and its
           backing storage.
@@ -375,9 +425,9 @@ public:
           wl_surface contents, e.g. as a GL texture. This is an important
           optimization for GL(ES) compositors with wl_shm clients.
          */
-  struct release;
+  struct ReleaseEvent {};
 
-  auto events() -> Observable<release>;
+  auto events() -> Observable<std::variant<ReleaseEvent>>;
 
   /** @brief Destroy a buffer. If and how you need to release the backing
         storage is defined by the buffer factory interface.
@@ -387,30 +437,39 @@ public:
   void destroy();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<release> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<ReleaseEvent>> mEventQueue;
 };
 
-class wl_data_offer {
+class DataOffer : private ProxyInterface {
 public:
-  enum class error : uint32_t {
+  enum class Error : uint32_t {
     invalid_finish = 0,
     invalid_action_mask = 1,
     invalid_action = 2,
     invalid_offer = 3
   };
 
+  DataOffer(ObjectId objectId, ConnectionHandle connection);
+  ~DataOffer();
+
   /** @brief Sent immediately after creating the wl_data_offer object.  One
           event per offered mime type.
          */
-  struct offer;
+  struct OfferEvent {
+    std::string_view mime_type;
+  };
 
   /** @brief This event indicates the actions offered by the data source. It
           will be sent immediately after creating the wl_data_offer object,
           or anytime the source side changes its offered actions through
           wl_data_source.set_actions.
          */
-  struct source_actions;
+  struct SourceActionsEvent {
+    std::uint32_t source_actions;
+  };
 
   /** @brief This event indicates the action selected by the compositor after
           matching the source/destination side actions. Only one action (or
@@ -448,9 +507,11 @@ public:
           final wl_data_offer.set_actions and wl_data_offer.accept requests
           must happen before the call to wl_data_offer.finish.
          */
-  struct action;
+  struct ActionEvent {
+    std::uint32_t dnd_action;
+  };
 
-  auto events() -> Observable<offer, source_actions, action>;
+  auto events() -> Observable<std::variant<OfferEvent, SourceActionsEvent, ActionEvent>>;
 
   /** @brief Indicate that the client can accept the given mime type, or
         NULL for not accepted.
@@ -485,7 +546,7 @@ public:
         clients may preemptively fetch data or examine it more closely to
         determine acceptance.
        */
-  void receive(std::string_view mime_type, fd fd);
+  void receive(std::string_view mime_type, FileDescriptorHandle fd);
 
   /** @brief Destroy the data offer.
    */
@@ -543,26 +604,36 @@ public:
   void set_actions(std::uint32_t dnd_actions, std::uint32_t preferred_action);
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<offer, source_actions, action> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<OfferEvent, SourceActionsEvent, ActionEvent>> mEventQueue;
 };
 
-class wl_data_source {
+class DataSource : private ProxyInterface {
 public:
-  enum class error : uint32_t { invalid_action_mask = 0, invalid_source = 1 };
+  enum class Error : uint32_t { invalid_action_mask = 0, invalid_source = 1 };
+
+  DataSource(ObjectId objectId, ConnectionHandle connection);
+  ~DataSource();
 
   /** @brief Sent when a target accepts pointer_focus or motion events.  If
           a target does not accept any of the offered types, type is NULL.
 
           Used for feedback during drag-and-drop.
          */
-  struct target;
+  struct TargetEvent {
+    std::string_view mime_type;
+  };
 
   /** @brief Request for data from the client.  Send the data as the
           specified mime type over the passed file descriptor, then
           close it.
          */
-  struct send;
+  struct SendEvent {
+    std::string_view mime_type;
+    FileDescriptorHandle fd;
+  };
 
   /** @brief This data source is no longer valid. There are several reasons why
           this could happen:
@@ -585,7 +656,7 @@ public:
           only be emitted if the data source was replaced by another data
           source.
          */
-  struct cancelled;
+  struct CancelledEvent {};
 
   /** @brief The user performed the drop action. This event does not indicate
           acceptance, wl_data_source.cancelled may still be emitted afterwards
@@ -597,7 +668,7 @@ public:
           Note that the data_source may still be used in the future and should
           not be destroyed here.
          */
-  struct dnd_drop_performed;
+  struct DndDropPerformedEvent {};
 
   /** @brief The drop destination finished interoperating with this data
           source, so the client is now free to destroy this data source and
@@ -606,7 +677,7 @@ public:
           If the action used to perform the operation was "move", the
           source can now delete the transferred data.
          */
-  struct dnd_finished;
+  struct DndFinishedEvent {};
 
   /** @brief This event indicates the action selected by the compositor after
           matching the source/destination side actions. Only one action (or
@@ -634,9 +705,12 @@ public:
           Clients can trigger cursor surface changes from this point, so
           they reflect the current action.
          */
-  struct action;
+  struct ActionEvent {
+    std::uint32_t dnd_action;
+  };
 
-  auto events() -> Observable<target, send, cancelled, dnd_drop_performed, dnd_finished, action>;
+  auto events() -> Observable<std::variant<TargetEvent, SendEvent, CancelledEvent,
+                                           DndDropPerformedEvent, DndFinishedEvent, ActionEvent>>;
 
   /** @brief This request adds a mime type to the set of mime types
         advertised to targets.  Can be called several times to offer
@@ -665,13 +739,20 @@ public:
   void set_actions(std::uint32_t dnd_actions);
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<target, send, cancelled, dnd_drop_performed, dnd_finished, action> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<TargetEvent, SendEvent, CancelledEvent, DndDropPerformedEvent,
+                          DndFinishedEvent, ActionEvent>>
+      mEventQueue;
 };
 
-class wl_data_device {
+class DataDevice : private ProxyInterface {
 public:
-  enum class error : uint32_t { role = 0 };
+  enum class Error : uint32_t { role = 0 };
+
+  DataDevice(ObjectId objectId, ConnectionHandle connection);
+  ~DataDevice();
 
   /** @brief The data_offer event introduces a new wl_data_offer object,
           which will subsequently be used in either the
@@ -681,27 +762,37 @@ public:
           object will send out data_offer.offer events to describe the
           mime types it offers.
          */
-  struct data_offer;
+  struct DataOfferEvent {};
 
   /** @brief This event is sent when an active drag-and-drop pointer enters
           a surface owned by the client.  The position of the pointer at
           enter time is provided by the x and y arguments, in surface-local
           coordinates.
          */
-  struct enter;
+  struct EnterEvent {
+    std::uint32_t serial;
+    const Surface* surface;
+    std::uint32_t x;
+    std::uint32_t y;
+    const DataOffer* id;
+  };
 
   /** @brief This event is sent when the drag-and-drop pointer leaves the
           surface and the session ends.  The client must destroy the
           wl_data_offer introduced at enter time at this point.
          */
-  struct leave;
+  struct LeaveEvent {};
 
   /** @brief This event is sent when the drag-and-drop pointer moves within
           the currently focused surface. The new position of the pointer
           is provided by the x and y arguments, in surface-local
           coordinates.
          */
-  struct motion;
+  struct MotionEvent {
+    std::uint32_t time;
+    std::uint32_t x;
+    std::uint32_t y;
+  };
 
   /** @brief The event is sent when a drag-and-drop operation is ended
           because the implicit grab is removed.
@@ -717,7 +808,7 @@ public:
           wl_data_offer.set_actions request, or wl_data_offer.destroy in order
           to cancel the operation.
          */
-  struct drop;
+  struct DropEvent {};
 
   /** @brief The selection event is sent out to notify the client of a new
           wl_data_offer for the selection for this device.  The
@@ -732,9 +823,12 @@ public:
           will be sent.  The client must destroy the previous selection
           data_offer, if any, upon receiving this event.
          */
-  struct selection;
+  struct SelectionEvent {
+    const DataOffer* id;
+  };
 
-  auto events() -> Observable<data_offer, enter, leave, motion, drop, selection>;
+  auto events() -> Observable<
+      std::variant<DataOfferEvent, EnterEvent, LeaveEvent, MotionEvent, DropEvent, SelectionEvent>>;
 
   /** @brief This request asks the compositor to start a drag-and-drop
         operation on behalf of the client.
@@ -762,7 +856,7 @@ public:
         The input region is ignored for wl_surfaces with the role of a
         drag-and-drop icon.
        */
-  void start_drag(const wl_data_source& source, const wl_surface& origin, const wl_surface& icon,
+  void start_drag(const DataSource* source, const Surface* origin, const Surface* icon,
                   std::uint32_t serial);
 
   /** @brief This request asks the compositor to set the selection
@@ -770,18 +864,22 @@ public:
 
         To unset the selection, set the source to NULL.
        */
-  void set_selection(const wl_data_source& source, std::uint32_t serial);
+  void set_selection(const DataSource* source, std::uint32_t serial);
 
   /** @brief This request destroys the data device.
    */
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<data_offer, enter, leave, motion, drop, selection> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<
+      std::variant<DataOfferEvent, EnterEvent, LeaveEvent, MotionEvent, DropEvent, SelectionEvent>>
+      mEventQueue;
 };
 
-class wl_data_device_manager {
+class DataDeviceManager : private ProxyInterface {
 public:
   /** @brief This is a bitmask of the available/preferred actions in a
           drag-and-drop operation.
@@ -807,23 +905,31 @@ public:
           or drags initiated with other buttons than BTN_LEFT to specific
           actions (e.g. "ask").
          */
-  enum class dnd_action : uint32_t { none = 0, copy = 1, move = 2, ask = 4 };
+  enum class DndAction : uint32_t { none = 0, copy = 1, move = 2, ask = 4 };
+
+  DataDeviceManager(ObjectId objectId, ConnectionHandle connection);
+  ~DataDeviceManager();
 
   /** @brief Create a new data source.
    */
-  auto create_data_source() -> wl_data_source;
+  auto create_data_source() -> DataSource;
 
   /** @brief Create a new data device for a given seat.
    */
-  auto get_data_device(const wl_seat& seat) -> wl_data_device;
+  auto get_data_device(const Seat* seat) -> DataDevice;
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_shell {
+class Shell : private ProxyInterface {
 public:
-  enum class error : uint32_t { role = 0 };
+  enum class Error : uint32_t { role = 0 };
+
+  Shell(ObjectId objectId, ConnectionHandle connection);
+  ~Shell();
 
   /** @brief Create a shell surface for an existing surface. This gives
         the wl_surface the role of a shell surface. If the wl_surface
@@ -831,20 +937,22 @@ public:
 
         Only one shell surface can be associated with a given surface.
        */
-  auto get_shell_surface(const wl_surface& surface) -> wl_shell_surface;
+  auto get_shell_surface(const Surface* surface) -> ShellSurface;
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_shell_surface {
+class ShellSurface : private ProxyInterface {
 public:
   /** @brief These values are used to indicate which edge of a surface
           is being dragged in a resize operation. The server may
           use this information to adapt its behavior, e.g. choose
           an appropriate cursor image.
          */
-  enum class resize : uint32_t {
+  enum class Resize : uint32_t {
     none = 0,
     top = 1,
     bottom = 2,
@@ -859,18 +967,23 @@ public:
   /** @brief These flags specify details of the expected behaviour
           of transient surfaces. Used in the set_transient request.
          */
-  enum class transient : uint32_t { inactive = 0x1 };
+  enum class Transient : uint32_t { inactive = 0x1 };
 
   /** @brief Hints to indicate to the compositor how to deal with a conflict
           between the dimensions of the surface and the dimensions of the
           output. The compositor is free to ignore this parameter.
          */
-  enum class fullscreen_method : uint32_t { default = 0, scale = 1, driver = 2, fill = 3 };
+  enum class FullscreenMethod : uint32_t { kDefault = 0, scale = 1, driver = 2, fill = 3 };
+
+  ShellSurface(ObjectId objectId, ConnectionHandle connection);
+  ~ShellSurface();
 
   /** @brief Ping a client to check if it is receiving events and sending
           requests. A client is expected to reply with a pong request.
          */
-  struct ping;
+  struct PingEvent {
+    std::uint32_t serial;
+  };
 
   /** @brief The configure event asks the client to resize its surface.
 
@@ -890,15 +1003,19 @@ public:
           The width and height arguments specify the size of the window
           in surface-local coordinates.
          */
-  struct configure;
+  struct ConfigureEvent {
+    std::uint32_t edges;
+    int width;
+    int height;
+  };
 
   /** @brief The popup_done event is sent out when a popup grab is broken,
           that is, when the user clicks a surface that doesn't belong
           to the client owning the popup surface.
          */
-  struct popup_done;
+  struct PopupDoneEvent {};
 
-  auto events() -> Observable<ping, configure, popup_done>;
+  auto events() -> Observable<std::variant<PingEvent, ConfigureEvent, PopupDoneEvent>>;
 
   /** @brief A client must respond to a ping event with a pong request or
         the client may be deemed unresponsive.
@@ -911,7 +1028,7 @@ public:
         The server may ignore move requests depending on the state of
         the surface (e.g. fullscreen or maximized).
        */
-  void move(const wl_seat& seat, std::uint32_t serial);
+  void move(const Seat* seat, std::uint32_t serial);
 
   /** @brief Start a pointer-driven resizing of the surface.
 
@@ -919,7 +1036,7 @@ public:
         The server may ignore resize requests depending on the state of
         the surface (e.g. fullscreen or maximized).
        */
-  void resize(const wl_seat& seat, std::uint32_t serial, std::uint32_t edges);
+  void resize(const Seat* seat, std::uint32_t serial, std::uint32_t edges);
 
   /** @brief Map the surface as a toplevel surface.
 
@@ -935,7 +1052,7 @@ public:
 
         The flags argument controls details of the transient behaviour.
        */
-  void set_transient(const wl_surface& parent, int x, int y, std::uint32_t flags);
+  void set_transient(const Surface* parent, int x, int y, std::uint32_t flags);
 
   /** @brief Map the surface as a fullscreen surface.
 
@@ -971,7 +1088,7 @@ public:
         with the dimensions for the output on which the surface will
         be made fullscreen.
        */
-  void set_fullscreen(std::uint32_t method, std::uint32_t framerate, const wl_output& output);
+  void set_fullscreen(std::uint32_t method, std::uint32_t framerate, const Output* output);
 
   /** @brief Map the surface as a popup.
 
@@ -993,7 +1110,7 @@ public:
         corner of the surface relative to the upper left corner of the
         parent surface, in surface-local coordinates.
        */
-  void set_popup(const wl_seat& seat, std::uint32_t serial, const wl_surface& parent, int x, int y,
+  void set_popup(const Seat* seat, std::uint32_t serial, const Surface* parent, int x, int y,
                  std::uint32_t flags);
 
   /** @brief Map the surface as a maximized surface.
@@ -1015,7 +1132,7 @@ public:
 
         The details depend on the compositor implementation.
        */
-  void set_maximized(const wl_output& output);
+  void set_maximized(const Output* output);
 
   /** @brief Set a short title for the surface.
 
@@ -1037,15 +1154,17 @@ public:
   void set_class(std::string_view class_);
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<ping, configure, popup_done> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<PingEvent, ConfigureEvent, PopupDoneEvent>> mEventQueue;
 };
 
-class wl_surface {
+class Surface : private ProxyInterface {
 public:
   /** @brief These errors can be emitted in response to wl_surface requests.
    */
-  enum class error : uint32_t {
+  enum class Error : uint32_t {
     invalid_scale = 0,
     invalid_transform = 1,
     invalid_size = 2,
@@ -1053,13 +1172,18 @@ public:
     defunct_role_object = 4
   };
 
+  Surface(ObjectId objectId, ConnectionHandle connection);
+  ~Surface();
+
   /** @brief This is emitted whenever a surface's creation, movement, or resizing
           results in some part of it being within the scanout region of an
           output.
 
           Note that a surface may be overlapping with zero or more outputs.
          */
-  struct enter;
+  struct EnterEvent {
+    const Output* output;
+  };
 
   /** @brief This is emitted whenever a surface's creation, movement, or resizing
           results in it no longer having any part of it within the scanout region
@@ -1071,7 +1195,9 @@ public:
           updates even if no enter event has been sent. The frame event should be
           used instead.
          */
-  struct leave;
+  struct LeaveEvent {
+    const Output* output;
+  };
 
   /** @brief This event indicates the preferred buffer scale for this surface. It is
           sent whenever the compositor's preference changes.
@@ -1081,7 +1207,9 @@ public:
           have rendered with. This allows clients to supply a higher detail
           buffer.
          */
-  struct preferred_buffer_scale;
+  struct PreferredBufferScaleEvent {
+    int factor;
+  };
 
   /** @brief This event indicates the preferred buffer transform for this surface.
           It is sent whenever the compositor's preference changes.
@@ -1090,9 +1218,12 @@ public:
           transform to their content and use wl_surface.set_buffer_transform to
           indicate the transform they have rendered with.
          */
-  struct preferred_buffer_transform;
+  struct PreferredBufferTransformEvent {
+    std::uint32_t transform;
+  };
 
-  auto events() -> Observable<enter, leave, preferred_buffer_scale, preferred_buffer_transform>;
+  auto events() -> Observable<std::variant<EnterEvent, LeaveEvent, PreferredBufferScaleEvent,
+                                           PreferredBufferTransformEvent>>;
 
   /** @brief Deletes the surface and invalidates its object ID.
    */
@@ -1156,7 +1287,7 @@ public:
         If wl_surface.attach is sent with a NULL wl_buffer, the
         following wl_surface.commit will remove the surface content.
        */
-  void attach(const wl_buffer& buffer, int x, int y);
+  void attach(const Buffer* buffer, int x, int y);
 
   /** @brief This request is used to describe the regions where the pending
         buffer is different from the current surface contents, and where
@@ -1215,7 +1346,7 @@ public:
         The callback_data passed in the callback is the current time, in
         milliseconds, with an undefined base.
        */
-  auto frame() -> wl_callback;
+  auto frame() -> Callback;
 
   /** @brief This request sets the region of the surface that contains
         opaque content.
@@ -1242,7 +1373,7 @@ public:
         destroyed immediately. A NULL wl_region causes the pending opaque
         region to be set to empty.
        */
-  void set_opaque_region(const wl_region& region);
+  void set_opaque_region(const Region* region);
 
   /** @brief This request sets the region of the surface that can receive
         pointer and touch events.
@@ -1267,7 +1398,7 @@ public:
         immediately. A NULL wl_region causes the input region to be set
         to infinite.
        */
-  void set_input_region(const wl_region& region);
+  void set_input_region(const Region* region);
 
   /** @brief Surface state (input, opaque, and damage regions, attached buffers,
         etc.) is double-buffered. Protocol requests modify the pending state,
@@ -1398,20 +1529,27 @@ public:
   void offset(int x, int y);
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<enter, leave, preferred_buffer_scale, preferred_buffer_transform> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<EnterEvent, LeaveEvent, PreferredBufferScaleEvent,
+                          PreferredBufferTransformEvent>>
+      mEventQueue;
 };
 
-class wl_seat {
+class Seat : private ProxyInterface {
 public:
   /** @brief This is a bitmask of capabilities this seat has; if a member is
           set, then it is present on the seat.
          */
-  enum class capability : uint32_t { pointer = 1, keyboard = 2, touch = 4 };
+  enum class Capability : uint32_t { pointer = 1, keyboard = 2, touch = 4 };
 
   /** @brief These errors can be emitted in response to wl_seat requests.
    */
-  enum class error : uint32_t { missing_capability = 0 };
+  enum class Error : uint32_t { missing_capability = 0 };
+
+  Seat(ObjectId objectId, ConnectionHandle connection);
+  ~Seat();
 
   /** @brief This is emitted whenever a seat gains or loses the pointer,
           keyboard or touch capabilities.  The argument is a capability
@@ -1438,7 +1576,9 @@ public:
           The above behavior also applies to wl_keyboard and wl_touch with the
           keyboard and touch capabilities, respectively.
          */
-  struct capabilities;
+  struct CapabilitiesEvent {
+    std::uint32_t capabilities;
+  };
 
   /** @brief In a multi-seat configuration the seat name can be used by clients to
           help identify which physical devices the seat represents.
@@ -1457,9 +1597,11 @@ public:
           Compositors may re-use the same seat name if the wl_seat global is
           destroyed and re-created later.
          */
-  struct name;
+  struct NameEvent {
+    std::string_view name;
+  };
 
-  auto events() -> Observable<capabilities, name>;
+  auto events() -> Observable<std::variant<CapabilitiesEvent, NameEvent>>;
 
   /** @brief The ID provided will be initialized to the wl_pointer interface
         for this seat.
@@ -1470,7 +1612,7 @@ public:
         never had the pointer capability. The missing_capability error will
         be sent in this case.
        */
-  auto get_pointer() -> wl_pointer;
+  auto get_pointer() -> Pointer;
 
   /** @brief The ID provided will be initialized to the wl_keyboard interface
         for this seat.
@@ -1481,7 +1623,7 @@ public:
         never had the keyboard capability. The missing_capability error will
         be sent in this case.
        */
-  auto get_keyboard() -> wl_keyboard;
+  auto get_keyboard() -> Keyboard;
 
   /** @brief The ID provided will be initialized to the wl_touch interface
         for this seat.
@@ -1492,7 +1634,7 @@ public:
         never had the touch capability. The missing_capability error will
         be sent in this case.
        */
-  auto get_touch() -> wl_touch;
+  auto get_touch() -> Touch;
 
   /** @brief Using this request a client can tell the server that it is not going to
         use the seat object anymore.
@@ -1500,22 +1642,24 @@ public:
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<capabilities, name> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<CapabilitiesEvent, NameEvent>> mEventQueue;
 };
 
-class wl_pointer {
+class Pointer : private ProxyInterface {
 public:
-  enum class error : uint32_t { role = 0 };
+  enum class Error : uint32_t { role = 0 };
 
   /** @brief Describes the physical state of a button that produced the button
           event.
          */
-  enum class button_state : uint32_t { released = 0, pressed = 1 };
+  enum class ButtonState : uint32_t { released = 0, pressed = 1 };
 
   /** @brief Describes the axis types of scroll events.
    */
-  enum class axis : uint32_t { vertical_scroll = 0, horizontal_scroll = 1 };
+  enum class Axis : uint32_t { vertical_scroll = 0, horizontal_scroll = 1 };
 
   /** @brief Describes the source types for axis events. This indicates to the
           client how an axis event was physically generated; a client may
@@ -1534,12 +1678,15 @@ public:
           wheel but the scroll event is not caused by a rotation but a
           (usually sideways) tilt of the wheel.
          */
-  enum class axis_source : uint32_t { wheel = 0, finger = 1, continuous = 2, wheel_tilt = 3 };
+  enum class AxisSource : uint32_t { wheel = 0, finger = 1, continuous = 2, wheel_tilt = 3 };
 
   /** @brief This specifies the direction of the physical motion that caused a
           wl_pointer.axis event, relative to the wl_pointer.axis direction.
          */
-  enum class axis_relative_direction : uint32_t { identical = 0, inverted = 1 };
+  enum class AxisRelativeDirection : uint32_t { identical = 0, inverted = 1 };
+
+  Pointer(ObjectId objectId, ConnectionHandle connection);
+  ~Pointer();
 
   /** @brief Notification that this seat's pointer is focused on a certain
           surface.
@@ -1548,7 +1695,12 @@ public:
           is undefined and a client should respond to this event by setting
           an appropriate pointer image with the set_cursor request.
          */
-  struct enter;
+  struct EnterEvent {
+    std::uint32_t serial;
+    const Surface* surface;
+    std::uint32_t surface_x;
+    std::uint32_t surface_y;
+  };
 
   /** @brief Notification that this seat's pointer is no longer focused on
           a certain surface.
@@ -1556,13 +1708,20 @@ public:
           The leave notification is sent before the enter notification
           for the new focus.
          */
-  struct leave;
+  struct LeaveEvent {
+    std::uint32_t serial;
+    const Surface* surface;
+  };
 
   /** @brief Notification of pointer location change. The arguments
           surface_x and surface_y are the location relative to the
           focused surface.
          */
-  struct motion;
+  struct MotionEvent {
+    std::uint32_t time;
+    std::uint32_t surface_x;
+    std::uint32_t surface_y;
+  };
 
   /** @brief Mouse button click and release notifications.
 
@@ -1579,7 +1738,12 @@ public:
           currently undefined but may be used in future versions of this
           protocol.
          */
-  struct button;
+  struct ButtonEvent {
+    std::uint32_t serial;
+    std::uint32_t time;
+    std::uint32_t button;
+    std::uint32_t state;
+  };
 
   /** @brief Scroll and other axis notifications.
 
@@ -1598,7 +1762,11 @@ public:
           When applicable, a client can transform its content relative to the
           scroll distance.
          */
-  struct axis;
+  struct AxisEvent {
+    std::uint32_t time;
+    std::uint32_t axis;
+    std::uint32_t value;
+  };
 
   /** @brief Indicates the end of a set of events that logically belong together.
           A client is expected to accumulate the data in all events within the
@@ -1635,7 +1803,7 @@ public:
           wl_pointer.enter event being split across multiple wl_pointer.frame
           groups.
          */
-  struct frame;
+  struct FrameEvent {};
 
   /** @brief Source information for scroll and other axes.
 
@@ -1663,7 +1831,9 @@ public:
           The order of wl_pointer.axis_discrete and wl_pointer.axis_source is
           not guaranteed.
          */
-  struct axis_source;
+  struct AxisSourceEvent {
+    std::uint32_t axis_source;
+  };
 
   /** @brief Stop notification for scroll and other axes.
 
@@ -1680,7 +1850,10 @@ public:
           wl_pointer.axis event. The timestamp value may be the same as a
           preceding wl_pointer.axis event.
          */
-  struct axis_stop;
+  struct AxisStopEvent {
+    std::uint32_t time;
+    std::uint32_t axis;
+  };
 
   /** @brief Discrete step information for scroll and other axes.
 
@@ -1713,7 +1886,10 @@ public:
           The order of wl_pointer.axis_discrete and wl_pointer.axis_source is
           not guaranteed.
          */
-  struct axis_discrete;
+  struct AxisDiscreteEvent {
+    std::uint32_t axis;
+    int discrete;
+  };
 
   /** @brief Discrete high-resolution scroll information.
 
@@ -1737,7 +1913,10 @@ public:
           The order of wl_pointer.axis_value120 and wl_pointer.axis_source is
           not guaranteed.
          */
-  struct axis_value120;
+  struct AxisValue120Event {
+    std::uint32_t axis;
+    int value120;
+  };
 
   /** @brief Relative directional information of the entity causing the axis
           motion.
@@ -1775,10 +1954,15 @@ public:
           wl_pointer.axis_discrete and wl_pointer.axis_source is not
           guaranteed.
          */
-  struct axis_relative_direction;
+  struct AxisRelativeDirectionEvent {
+    std::uint32_t axis;
+    std::uint32_t direction;
+  };
 
-  auto events() -> Observable<enter, leave, motion, button, axis, frame, axis_source, axis_stop,
-                              axis_discrete, axis_value120, axis_relative_direction>;
+  auto events()
+      -> Observable<std::variant<EnterEvent, LeaveEvent, MotionEvent, ButtonEvent, AxisEvent,
+                                 FrameEvent, AxisSourceEvent, AxisStopEvent, AxisDiscreteEvent,
+                                 AxisValue120Event, AxisRelativeDirectionEvent>>;
 
   /** @brief Set the pointer surface, i.e., the surface that contains the
         pointer image (cursor). This request gives the surface the role
@@ -1814,7 +1998,7 @@ public:
         serial number sent to the client. Otherwise the request will be
         ignored.
        */
-  void set_cursor(std::uint32_t serial, const wl_surface& surface, int hotspot_x, int hotspot_y);
+  void set_cursor(std::uint32_t serial, const Surface* surface, int hotspot_x, int hotspot_y);
 
   /** @brief Using this request a client can tell the server that it is not going to
         use the pointer object anymore.
@@ -1825,22 +2009,28 @@ public:
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<enter, leave, motion, button, axis, frame, axis_source, axis_stop, axis_discrete,
-             axis_value120, axis_relative_direction>
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<EnterEvent, LeaveEvent, MotionEvent, ButtonEvent, AxisEvent, FrameEvent,
+                          AxisSourceEvent, AxisStopEvent, AxisDiscreteEvent, AxisValue120Event,
+                          AxisRelativeDirectionEvent>>
       mEventQueue;
 };
 
-class wl_keyboard {
+class Keyboard : private ProxyInterface {
 public:
   /** @brief This specifies the format of the keymap provided to the
           client with the wl_keyboard.keymap event.
          */
-  enum class keymap_format : uint32_t { no_keymap = 0, xkb_v1 = 1 };
+  enum class KeymapFormat : uint32_t { no_keymap = 0, xkb_v1 = 1 };
 
   /** @brief Describes the physical state of a key that produced the key event.
    */
-  enum class key_state : uint32_t { released = 0, pressed = 1 };
+  enum class KeyState : uint32_t { released = 0, pressed = 1 };
+
+  Keyboard(ObjectId objectId, ConnectionHandle connection);
+  ~Keyboard();
 
   /** @brief This event provides a file descriptor to the client which can be
           memory-mapped in read-only mode to provide a keyboard mapping
@@ -1849,7 +2039,11 @@ public:
           From version 7 onwards, the fd must be mapped with MAP_PRIVATE by
           the recipient, as MAP_SHARED may fail.
          */
-  struct keymap;
+  struct KeymapEvent {
+    std::uint32_t format;
+    FileDescriptorHandle fd;
+    std::uint32_t size;
+  };
 
   /** @brief Notification that this seat's keyboard focus is on a certain
           surface.
@@ -1857,7 +2051,11 @@ public:
           The compositor must send the wl_keyboard.modifiers event after this
           event.
          */
-  struct enter;
+  struct EnterEvent {
+    std::uint32_t serial;
+    const Surface* surface;
+    std::span<const char> keys;
+  };
 
   /** @brief Notification that this seat's keyboard focus is no longer on
           a certain surface.
@@ -1868,7 +2066,10 @@ public:
           After this event client must assume that all keys, including modifiers,
           are lifted and also it must stop key repeating if there's some going on.
          */
-  struct leave;
+  struct LeaveEvent {
+    std::uint32_t serial;
+    const Surface* surface;
+  };
 
   /** @brief A key was pressed or released.
           The time argument is a timestamp with millisecond
@@ -1880,12 +2081,23 @@ public:
           If this event produces a change in modifiers, then the resulting
           wl_keyboard.modifiers event must be sent after this event.
          */
-  struct key;
+  struct KeyEvent {
+    std::uint32_t serial;
+    std::uint32_t time;
+    std::uint32_t key;
+    std::uint32_t state;
+  };
 
   /** @brief Notifies clients that the modifier and/or group state has
           changed, and it should update its local state.
          */
-  struct modifiers;
+  struct ModifiersEvent {
+    std::uint32_t serial;
+    std::uint32_t mods_depressed;
+    std::uint32_t mods_latched;
+    std::uint32_t mods_locked;
+    std::uint32_t group;
+  };
 
   /** @brief Informs the client about the keyboard's repeat rate and delay.
 
@@ -1900,35 +2112,62 @@ public:
           so clients should continue listening for the event past the creation
           of wl_keyboard.
          */
-  struct repeat_info;
+  struct RepeatInfoEvent {
+    int rate;
+    int delay;
+  };
 
-  auto events() -> Observable<keymap, enter, leave, key, modifiers, repeat_info>;
+  auto events() -> Observable<
+      std::variant<KeymapEvent, EnterEvent, LeaveEvent, KeyEvent, ModifiersEvent, RepeatInfoEvent>>;
 
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<keymap, enter, leave, key, modifiers, repeat_info> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<
+      std::variant<KeymapEvent, EnterEvent, LeaveEvent, KeyEvent, ModifiersEvent, RepeatInfoEvent>>
+      mEventQueue;
 };
 
-class wl_touch {
+class Touch : private ProxyInterface {
 public:
+  Touch(ObjectId objectId, ConnectionHandle connection);
+  ~Touch();
+
   /** @brief A new touch point has appeared on the surface. This touch point is
           assigned a unique ID. Future events from this touch point reference
           this ID. The ID ceases to be valid after a touch up event and may be
           reused in the future.
          */
-  struct down;
+  struct DownEvent {
+    std::uint32_t serial;
+    std::uint32_t time;
+    const Surface* surface;
+    int id;
+    std::uint32_t x;
+    std::uint32_t y;
+  };
 
   /** @brief The touch point has disappeared. No further events will be sent for
           this touch point and the touch point's ID is released and may be
           reused in a future touch down event.
          */
-  struct up;
+  struct UpEvent {
+    std::uint32_t serial;
+    std::uint32_t time;
+    int id;
+  };
 
   /** @brief A touch point has changed coordinates.
    */
-  struct motion;
+  struct MotionEvent {
+    std::uint32_t time;
+    int id;
+    std::uint32_t x;
+    std::uint32_t y;
+  };
 
   /** @brief Indicates the end of a set of events that logically belong together.
           A client is expected to accumulate the data in all events within the
@@ -1939,7 +2178,7 @@ public:
           must assume that any state not updated in a frame is unchanged from the
           previously known state.
          */
-  struct frame;
+  struct FrameEvent {};
 
   /** @brief Sent if the compositor decides the touch stream is a global
           gesture. No further events are sent to the clients from that
@@ -1948,7 +2187,7 @@ public:
           responsible for finalizing the touch points, future touch points on
           this surface may reuse the touch point ID.
          */
-  struct cancel;
+  struct CancelEvent {};
 
   /** @brief Sent when a touchpoint has changed its shape.
 
@@ -1976,7 +2215,11 @@ public:
           shape reports. The client has to make reasonable assumptions about the
           shape if it did not receive this event.
          */
-  struct shape;
+  struct ShapeEvent {
+    int id;
+    std::uint32_t major;
+    std::uint32_t minor;
+  };
 
   /** @brief Sent when a touchpoint has changed its orientation.
 
@@ -2002,23 +2245,31 @@ public:
           This event is only sent by the compositor if the touch device supports
           orientation reports.
          */
-  struct orientation;
+  struct OrientationEvent {
+    int id;
+    std::uint32_t orientation;
+  };
 
-  auto events() -> Observable<down, up, motion, frame, cancel, shape, orientation>;
+  auto events() -> Observable<std::variant<DownEvent, UpEvent, MotionEvent, FrameEvent, CancelEvent,
+                                           ShapeEvent, OrientationEvent>>;
 
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<down, up, motion, frame, cancel, shape, orientation> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<std::variant<DownEvent, UpEvent, MotionEvent, FrameEvent, CancelEvent, ShapeEvent,
+                          OrientationEvent>>
+      mEventQueue;
 };
 
-class wl_output {
+class Output : private ProxyInterface {
 public:
   /** @brief This enumeration describes how the physical
           pixels on an output are laid out.
          */
-  enum class subpixel : uint32_t {
+  enum class Subpixel : uint32_t {
     unknown = 0,
     none = 1,
     horizontal_rgb = 2,
@@ -2039,11 +2290,11 @@ public:
           compositor will still be able to scan out directly from client
           surfaces.
          */
-  enum class transform : uint32_t {
+  enum class Transform : uint32_t {
     normal = 0,
-    90 = 1,
-    180 = 2,
-    270 = 3,
+    k90 = 1,
+    k180 = 2,
+    k270 = 3,
     flipped = 4,
     flipped_90 = 5,
     flipped_180 = 6,
@@ -2053,7 +2304,10 @@ public:
   /** @brief These flags describe properties of an output mode.
           They are used in the flags bitfield of the mode event.
          */
-  enum class mode : uint32_t { current = 0x1, preferred = 0x2 };
+  enum class Mode : uint32_t { current = 0x1, preferred = 0x2 };
+
+  Output(ObjectId objectId, ConnectionHandle connection);
+  ~Output();
 
   /** @brief The geometry event describes geometric properties of the output.
           The event is sent when binding to the output object and whenever
@@ -2072,7 +2326,16 @@ public:
           should use xdg_output.logical_position. Instead of using make and model,
           clients should use name and description.
          */
-  struct geometry;
+  struct GeometryEvent {
+    int x;
+    int y;
+    int physical_width;
+    int physical_height;
+    int subpixel;
+    std::string_view make;
+    std::string_view model;
+    int transform;
+  };
 
   /** @brief The mode event describes an available mode for the output.
 
@@ -2108,7 +2371,12 @@ public:
           compositors, such as those exposing virtual outputs, might fake the
           refresh rate or the size.
          */
-  struct mode;
+  struct ModeEvent {
+    std::uint32_t flags;
+    int width;
+    int height;
+    int refresh;
+  };
 
   /** @brief This event is sent after all other properties have been
           sent after binding to the output object and after any
@@ -2116,7 +2384,7 @@ public:
           changes to the output properties to be seen as
           atomic, even if they happen via multiple events.
          */
-  struct done;
+  struct DoneEvent {};
 
   /** @brief This event contains scaling geometry information
           that is not in the geometry event. It may be sent after
@@ -2139,7 +2407,9 @@ public:
 
           The scale event will be followed by a done event.
          */
-  struct scale;
+  struct ScaleEvent {
+    int factor;
+  };
 
   /** @brief Many compositors will assign user-friendly names to their outputs, show
           them to the user, allow the user to refer to an output, etc. The client
@@ -2170,7 +2440,9 @@ public:
 
           The name event will be followed by a done event.
          */
-  struct name;
+  struct NameEvent {
+    std::string_view name;
+  };
 
   /** @brief Many compositors can produce human-readable descriptions of their
           outputs. The client may wish to know this description as well, e.g. for
@@ -2187,9 +2459,12 @@ public:
 
           The description event will be followed by a done event.
          */
-  struct description;
+  struct DescriptionEvent {
+    std::string_view description;
+  };
 
-  auto events() -> Observable<geometry, mode, done, scale, name, description>;
+  auto events() -> Observable<
+      std::variant<GeometryEvent, ModeEvent, DoneEvent, ScaleEvent, NameEvent, DescriptionEvent>>;
 
   /** @brief Using this request a client can tell the server that it is not going to
         use the output object anymore.
@@ -2197,12 +2472,19 @@ public:
   void release();
 
 private:
-  connection_handle mConnection;
-  AsyncQueue<geometry, mode, done, scale, name, description> mEventQueue;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
+  AsyncQueue<
+      std::variant<GeometryEvent, ModeEvent, DoneEvent, ScaleEvent, NameEvent, DescriptionEvent>>
+      mEventQueue;
 };
 
-class wl_region {
+class Region : private ProxyInterface {
 public:
+  Region(ObjectId objectId, ConnectionHandle connection);
+  ~Region();
+
   /** @brief Destroy the region.  This will invalidate the object ID.
    */
   void destroy();
@@ -2216,12 +2498,17 @@ public:
   void subtract(int x, int y, int width, int height);
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_subcompositor {
+class Subcompositor : private ProxyInterface {
 public:
-  enum class error : uint32_t { bad_surface = 0, bad_parent = 1 };
+  enum class Error : uint32_t { bad_surface = 0, bad_parent = 1 };
+
+  Subcompositor(ObjectId objectId, ConnectionHandle connection);
+  ~Subcompositor();
 
   /** @brief Informs the server that the client will not be using this
         protocol object anymore. This does not affect any other
@@ -2249,15 +2536,20 @@ public:
         This request modifies the behaviour of wl_surface.commit request on
         the sub-surface, see the documentation on wl_subsurface interface.
        */
-  auto get_subsurface(const wl_surface& surface, const wl_surface& parent) -> wl_subsurface;
+  auto get_subsurface(const Surface* surface, const Surface* parent) -> Subsurface;
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
-class wl_subsurface {
+class Subsurface : private ProxyInterface {
 public:
-  enum class error : uint32_t { bad_surface = 0 };
+  enum class Error : uint32_t { bad_surface = 0 };
+
+  Subsurface(ObjectId objectId, ConnectionHandle connection);
+  ~Subsurface();
 
   /** @brief The sub-surface interface is removed from the wl_surface object
         that was turned into a sub-surface with a
@@ -2301,12 +2593,12 @@ public:
         A new sub-surface is initially added as the top-most in the stack
         of its siblings and parent.
        */
-  void place_above(const wl_surface& sibling);
+  void place_above(const Surface* sibling);
 
   /** @brief The sub-surface is placed just below the reference surface.
         See wl_subsurface.place_above.
        */
-  void place_below(const wl_surface& sibling);
+  void place_below(const Surface* sibling);
 
   /** @brief Change the commit behaviour of the sub-surface to synchronized
         mode, also described as the parent dependent mode.
@@ -2347,7 +2639,9 @@ public:
   void set_desync();
 
 private:
-  connection_handle mConnection;
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;
 };
 
 } // namespace ms::wayland

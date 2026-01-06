@@ -4,8 +4,10 @@
 #include "wayland/Connection.hpp"
 
 #include "IoContext.hpp"
+#include "just_stopped.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
+#include "stopped_as_optional.hpp"
 #include "when_any.hpp"
 
 #include "Logging.hpp"
@@ -76,12 +78,12 @@ Connection::~Connection() {
   }
 }
 
-class ConnectionObserver {
+class ConnectionObservable {
 public:
-  explicit ConnectionObserver(Connection* connection) noexcept : mConnection(connection) {}
+  explicit ConnectionObservable(Connection* connection) noexcept : mConnection(connection) {}
 
-  template <class Receiver> auto subscribe(Receiver receiver) noexcept -> IoTask<void> {
-    return [](Connection* connection, Receiver receiver) -> IoTask<void> {
+  template <class Subscriber> auto subscribe(Subscriber subscriber) noexcept -> IoTask<void> {
+    return [](Connection* connection, Subscriber subscriber) -> IoTask<void> {
       IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
       co_await scheduler.poll(connection->get_fd(), POLLIN | POLLOUT | POLLERR);
       int error = 0;
@@ -96,34 +98,63 @@ public:
         co_return ConnectionHandle(connection);
       }(connection);
       std::exception_ptr exception = nullptr;
+      bool stopped = false;
       try {
-        co_await ms::when_any(receiver(std::move(handle)), readMessages(connection));
-      } catch (...) {
+        stopped = !(co_await ms::stopped_as_optional(
+                        ms::when_any(subscriber(std::move(handle)), recv_messages(connection))))
+                       .has_value();
+        if (stopped) {
+          Log::d("Wayland connection was stopped.");
+        } else {
+          Log::d("Wayland connection tasks completed.");
+        }
+      } catch (std::exception& e) {
+        Log::e("Caught exception: {}", e.what());
         exception = std::current_exception();
       }
+      Log::d("Closing connection to wayland server.");
       co_await connection->close();
+      if (stopped) {
+        co_await ms::just_stopped();
+      }
       if (exception) {
         std::rethrow_exception(exception);
       }
-    }(mConnection, std::move(receiver));
+    }(mConnection, std::move(subscriber));
   }
 
 private:
   static constexpr std::size_t kMinMessageSize = 8;
 
-  static auto read_at_least(Connection* connection, size_t minBytes, std::span<char> buffer)
-      -> IoTask<size_t> {
+  struct RecvMessageResult {
+    std::size_t bytesRead;
+    std::size_t controlBytesRead;
+  };
+
+  static auto recv_at_least(Connection* connection, size_t minBytes, std::span<char> buffer,
+                            std::span<char> controlBuffer) -> IoTask<RecvMessageResult> {
     IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
-    size_t totalBytesRead = 0;
+    std::size_t totalBytesRead = 0;
+    std::size_t totalControlBytesRead = 0;
     std::span<char> remainingBuffer = buffer;
+    std::span<char> remainingControlBuffer = controlBuffer;
     while (totalBytesRead < minBytes) {
-      ssize_t bytesRead =
-          ::read(connection->get_fd(), remainingBuffer.data(),
-                 remainingBuffer.size());
-      if (bytesRead > 0) {
-        totalBytesRead += static_cast<size_t>(bytesRead);
-        remainingBuffer = remainingBuffer.subspan(static_cast<size_t>(bytesRead));
-      } else if (bytesRead == -1) {
+      ::msghdr msg{};
+      ::iovec iov{};
+      iov.iov_base = remainingBuffer.data();
+      iov.iov_len = remainingBuffer.size();
+      msg.msg_iov = &iov;
+      msg.msg_iovlen = 1;
+      msg.msg_control = remainingControlBuffer.data();
+      msg.msg_controllen = remainingControlBuffer.size();
+      ssize_t rc = ::recvmsg(connection->get_fd(), &msg, 0);
+      if (rc > 0) {
+        std::size_t bytesRead = static_cast<std::size_t>(rc);
+        totalBytesRead += bytesRead;
+        totalControlBytesRead += msg.msg_controllen;
+        remainingBuffer = remainingBuffer.subspan(bytesRead);
+        remainingControlBuffer = remainingControlBuffer.subspan(msg.msg_controllen);
+      } else if (rc == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           co_await scheduler.poll(connection->get_fd(), POLLIN);
         } else {
@@ -131,19 +162,25 @@ private:
                                   "Failed to read from Wayland socket");
         }
       } else {
-        assert(bytesRead == 0);
+        assert(rc == 0);
         // EOF reached
         break;
       }
     }
-    co_return totalBytesRead;
+    RecvMessageResult result{};
+    result.bytesRead = totalBytesRead;
+    result.controlBytesRead = totalControlBytesRead;
+    co_return result;
   }
 
-  static auto readMessages(Connection* connection) -> IoTask<void> {
+  static auto recv_messages(Connection* connection) -> IoTask<void> {
     while (true) {
       char buffer[4096];
-      size_t bytesRead = co_await read_at_least(connection, kMinMessageSize, buffer);
-      Log::d("Read {} bytes from Wayland socket", bytesRead);
+      char controlBuffer[256];
+      auto [bytesRead, controlBytesRead] =
+          co_await recv_at_least(connection, kMinMessageSize, buffer, controlBuffer);
+      Log::d("Received {} data bytes and {} control bytes from Wayland socket", bytesRead,
+             controlBytesRead);
       assert(bytesRead >= kMinMessageSize);
       std::uint32_t objectId{};
       std::uint32_t MessageLengthAndOpCode{};
@@ -151,19 +188,27 @@ private:
       std::memcpy(&MessageLengthAndOpCode, buffer + 4, 4);
       const std::uint16_t opCode = static_cast<std::uint16_t>(MessageLengthAndOpCode & 0xFFFF);
       const std::uint16_t messageLength = static_cast<std::uint16_t>(MessageLengthAndOpCode >> 16);
-      Log::d("Received message for object ID {} with op code {} and length {}", objectId,
-             opCode, messageLength);
+      Log::d("Received message for object ID {} with op code {} and length {}", objectId, opCode,
+             messageLength);
       if (messageLength > bytesRead) {
-        size_t additionalBytesRead =
-            co_await read_at_least(connection, messageLength - bytesRead,
-                                   std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
+        std::span<char> bufferSpan(buffer);
+        std::span<char> controlBufferSpan(controlBuffer);
+        bufferSpan = bufferSpan.subspan(bytesRead);
+        controlBufferSpan = controlBufferSpan.subspan(controlBytesRead);
+        auto [additionalBytesRead, additionalControlBytesRead] = co_await recv_at_least(
+            connection, messageLength - bytesRead, bufferSpan, controlBufferSpan);
         bytesRead += additionalBytesRead;
-        Log::d("Read additional {} bytes from Wayland socket", additionalBytesRead);
+        controlBytesRead += additionalControlBytesRead;
+        Log::d("Received additional {} data bytes and {} control bytes from Wayland socket",
+               additionalBytesRead, additionalControlBytesRead);
+        Log::d(
+            "Finally received {} data bytes and {} control bytes for the complete message header",
+            messageLength, controlBytesRead);
       }
       std::span<const char> message(buffer, messageLength);
       auto proxyIt = connection->mProxies.find(static_cast<ObjectId>(objectId));
       if (proxyIt != connection->mProxies.end()) {
-        ProxyBase* proxy = proxyIt->second;
+        ProxyInterface* proxy = proxyIt->second;
         Log::d("Dispatching message to proxy for object ID {}", objectId);
         co_await proxy->handle_message(message);
       } else {
@@ -176,9 +221,13 @@ private:
 };
 
 auto Connection::run() -> Observable<ConnectionHandle> {
-  return Observable<ConnectionHandle>{ConnectionObserver{this}};
+  return Observable<ConnectionHandle>{ConnectionObservable{this}};
 }
 
 auto Connection::close() -> Task<void> { co_await mScope.close(); }
+
+auto ConnectionHandle::register_interface(ProxyInterface* proxy) -> void {
+  mConnection->mProxies[proxy->get_object_id()] = proxy;
+}
 
 } // namespace ms::wayland

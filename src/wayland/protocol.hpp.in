@@ -12,32 +12,41 @@
 #pragma once
 
 #include "AsyncQueue.hpp"
-#include "wayland/connection.hpp"
+#include "wayland/Connection.hpp"
 
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <variant>
 
 namespace ms::wayland {
 
-{% for interface in interfaces %}class {{interface.name}};
+{% for interface in interfaces %}class {{interface.cppname}};
 {% endfor %}
 
 {% for interface in interfaces %}
-class {{ interface.name }} {
+class {{ interface.cppname }} : private ProxyInterface {
 public:
 {% for entry in interface.enums %}
 {% if entry.description %}/** @brief {{ entry.description }} */{% endif %}
-  enum class {{ entry.name }} : uint32_t {
+  enum class {{ entry.cppname }} : uint32_t {
     {% for enum_value in entry.entries %}{{ enum_value.name }} = {{ enum_value.value }}{% if enum_value.__not_last %},{% endif %}{% endfor %}
   };
 {% endfor %}
 
+  {{ interface.cppname }}(ObjectId objectId, ConnectionHandle connection);
+  ~{{ interface.cppname }}();
+
 {% for event in interface.events %}
 {% if event.description %}/** @brief {{ event.description }} */
-{% endif %}struct {{ event.name }};
+{% endif %}struct {{ event.cppname }} {
+  {% for arg in event.args %}{% if arg.description %}/** @brief {{ arg.description }} */
+  {% endif %}{{ arg.type }} {{ arg.name }};
+  {% endfor %}
+};
 {% endfor %}
 {% if interface.events %}
-  auto events() -> Observable<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.name }}{% endfor %}>;
+  auto events() -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>>;
 {% endif %}
 
 {% for request in interface.requests %}
@@ -47,8 +56,10 @@ public:
   {% if request.return_type %}-> {{ request.return_type }}{% endif %};
 {% endfor %}
 private:
-  connection_handle mConnection;{% if interface.events %}
-  AsyncQueue<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.name }}{% endfor %}> mEventQueue;{% endif %}
+  auto handle_message(std::span<const char> message) -> IoTask<void> override;
+
+  ConnectionHandle mConnection;{% if interface.events %}
+  AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
 };
 {% endfor %}
 

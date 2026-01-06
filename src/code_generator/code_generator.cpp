@@ -74,11 +74,33 @@ auto read_full_file(std::filesystem::path file) -> std::string {
   return content;
 }
 
+auto to_camel_case(std::string_view str) -> std::string {
+  if (str.starts_with("wl_")) {
+    str.remove_prefix(3);
+  }
+  std::string result;
+  bool upperNext = true;
+  for (char ch : str) {
+    if (ch == '_') {
+      upperNext = true;
+    } else {
+      if (upperNext) {
+        result += static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        upperNext = false;
+      } else {
+        result += ch;
+      }
+    }
+  }
+  return result;
+}
+
 auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
   std::map<std::string, JinjaContext> root;
   for (const auto& [name, value] : tag.attributes) {
     root.emplace(name, value);
   }
+  root.emplace("cppname", JinjaContext{to_camel_case(root.at("name").asString())});
   JinjaArray args;
   JinjaArray entries;
   std::size_t count = 0;
@@ -105,25 +127,48 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
       auto interface = childObj.find("interface");
       if (type != childObj.end() && interface != childObj.end() &&
           type->second.asString() == "new_id") {
-        root.emplace("return_type", interface->second);
-      } else {
-        if (type != childObj.end() && interface != childObj.end() &&
-            type->second.asString() == "object") {
-          childObj.erase(type);
-          childObj.emplace("type", "const " + interface->second.asString() + "&");
-        } else if (type != childObj.end() && type->second.asString() == "uint") {
-          childObj.erase(type);
-          childObj.emplace("type", "std::uint32_t");
-        } else if (type != childObj.end() && type->second.asString() == "string") {
-          childObj.erase(type);
-          childObj.emplace("type", "std::string_view");
-        }
-        if (!args.empty()) {
-          childObj.emplace("__tail", "true");
-        }
-        args.emplace_back(JinjaObject{std::move(childObj)});
+        root.emplace("return_type", to_camel_case(interface->second.asString()));
+        ++count;
+        continue;
+      } else if (type != childObj.end() && interface == childObj.end() &&
+                 type->second.asString() == "new_id") {
+        childObj.erase(type);
+        childObj.emplace("type", "ObjectId");
+      } else if (type != childObj.end() && interface != childObj.end() &&
+                 type->second.asString() == "object") {
+        childObj.erase(type);
+        childObj.emplace("type", "const " + to_camel_case(interface->second.asString()) + "*");
+      } else if (type != childObj.end() && interface == childObj.end() &&
+                 type->second.asString() == "object") {
+        childObj.erase(type);
+        childObj.emplace("type", "ObjectId");
+      } else if (type != childObj.end() && type->second.asString() == "uint") {
+        childObj.erase(type);
+        childObj.emplace("type", "std::uint32_t");
+      } else if (type != childObj.end() && type->second.asString() == "string") {
+        childObj.erase(type);
+        childObj.emplace("type", "std::string_view");
+      } else if (type != childObj.end() && type->second.asString() == "array") {
+        childObj.erase(type);
+        childObj.emplace("type", "std::span<const char>");
+      } else if (type != childObj.end() && type->second.asString() == "fixed") {
+        childObj.erase(type);
+        childObj.emplace("type", "std::uint32_t");
+      } else if (type != childObj.end() && type->second.asString() == "fd") {
+        childObj.erase(type);
+        childObj.emplace("type", "FileDescriptorHandle");
       }
+      if (!args.empty()) {
+        childObj.emplace("__tail", "true");
+      }
+      args.emplace_back(JinjaObject{std::move(childObj)});
     } else if (child.name == "entry") {
+      std::string& name = childObj.at("name").asString();
+      if (std::isdigit(name[0])) {
+        name = "k" + name;
+      } else if (name == "default") {
+        name = "kDefault";
+      }
       entries.emplace_back(JinjaObject{std::move(childObj)});
     }
     ++count;
@@ -148,30 +193,35 @@ auto make_context(const XmlTag& protocol) -> JinjaContext {
       std::map<std::string, JinjaContext> interface;
       for (const auto& [name, value] : interfaceTag.attributes) {
         interface.emplace(name, value);
-        JinjaArray requests;
-        JinjaArray events;
-        JinjaArray enums;
-        for (const XmlNode& child : interfaceTag.children) {
-          if (child.isText()) {
-            continue;
-          }
-          const XmlTag& childTag = child.asTag();
-          if (childTag.name == "request") {
-            requests.emplace_back(JinjaObject{make_subcontext(childTag)});
-          } else if (childTag.name == "event") {
-            std::map<std::string, JinjaContext> obj = make_subcontext(childTag);
-            if (!events.empty()) {
-              obj.emplace("__tail", "true");
-            }
-            events.emplace_back(JinjaObject{std::move(obj)});
-          } else if (childTag.name == "enum") {
-            enums.emplace_back(JinjaObject{make_subcontext(childTag)});
-          }
-        }
-        interface.emplace("requests", std::move(requests));
-        interface.emplace("events", std::move(events));
-        interface.emplace("enums", std::move(enums));
       }
+      interface.emplace("cppname", JinjaContext{to_camel_case(interface.at("name").asString())});
+      JinjaArray requests;
+      JinjaArray events;
+      JinjaArray enums;
+      for (const XmlNode& child : interfaceTag.children) {
+        if (child.isText()) {
+          continue;
+        }
+        const XmlTag& childTag = child.asTag();
+        if (childTag.name == "request") {
+          requests.emplace_back(JinjaObject{make_subcontext(childTag)});
+        } else if (childTag.name == "event") {
+          std::map<std::string, JinjaContext> obj = make_subcontext(childTag);
+          std::string name = obj.at("cppname").asString();
+          name += "Event";
+          obj.erase("cppname");
+          obj.emplace("cppname", name);
+          if (!events.empty()) {
+            obj.emplace("__tail", "true");
+          }
+          events.emplace_back(JinjaObject{std::move(obj)});
+        } else if (childTag.name == "enum") {
+          enums.emplace_back(JinjaObject{make_subcontext(childTag)});
+        }
+      }
+      interface.emplace("requests", std::move(requests));
+      interface.emplace("events", std::move(events));
+      interface.emplace("enums", std::move(enums));
       interfaces.emplace_back(JinjaObject{std::move(interface)});
     }
   }
