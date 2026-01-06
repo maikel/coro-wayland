@@ -19,6 +19,8 @@ namespace ms::wayland {
 
 struct FileDescriptorHandle {
 public:
+  FileDescriptorHandle() noexcept : mNativeHandle(-1) {}
+
   explicit FileDescriptorHandle(int handle);
 
   auto native_handle() const noexcept -> int;
@@ -30,7 +32,7 @@ private:
 };
 
 enum class ObjectId : std::uint32_t {
-  Display = 0,
+  Display = 1,
 };
 
 enum class OpCode : std::uint16_t {};
@@ -40,7 +42,8 @@ class Connection;
 
 class ConnectionHandle {
 public:
-  explicit ConnectionHandle(Connection* connection, IoScheduler scheduler) noexcept : mConnection(connection), mScheduler(scheduler) {}
+  explicit ConnectionHandle(Connection* connection, IoScheduler scheduler) noexcept
+      : mConnection(connection), mScheduler(scheduler) {}
 
   template <class... Args>
   auto send_message(ObjectId objectId, OpCode opCode, const Args&... args) -> void;
@@ -76,7 +79,7 @@ private:
   auto message_length(FileDescriptorHandle) -> std::uint16_t;
   auto message_length(const ProxyInterface*) -> std::uint16_t;
 
-  auto put_arg_to_message(std::span<char> buffer, std::string_view arg) -> std::span<char>;
+  auto put_arg_to_message(std::span<char> buffer, const std::string& arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, std::span<const char> arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, std::int32_t arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, std::uint32_t arg) -> std::span<char>;
@@ -113,11 +116,9 @@ public:
     mHandle.register_interface(this);
   }
 
-  virtual ~ProxyInterface() {
-    mHandle.unregister_interface(this);
-  }
+  virtual ~ProxyInterface() { mHandle.unregister_interface(this); }
 
-  virtual auto handle_message(std::span<const char> message) -> IoTask<void> = 0;
+  virtual auto handle_message(std::span<const char> message, OpCode code) -> IoTask<void> = 0;
 
   auto get_object_id() const noexcept -> ObjectId { return mObjectId; }
 
@@ -142,7 +143,7 @@ public:
   friend class ConnectionHandle;
 
   AsyncScope mScope;
-  std::atomic<std::uint32_t> mNextObjectId{1};
+  std::atomic<std::uint32_t> mNextObjectId{2};
   int mFd;
   std::unordered_map<ObjectId, ProxyInterface*> mProxies;
   std::queue<FileDescriptorHandle> mReceivedFileDescriptors;
@@ -155,7 +156,7 @@ template <class InterfaceType> auto ConnectionHandle::create_interface() -> Inte
 
 template <class... Args>
 auto ConnectionHandle::read_message(std::span<const char> buffer, Args&... args) -> std::size_t {
-  std::span<const char> remainingBuffer = buffer;
+  std::span<const char> remainingBuffer = buffer.subspan(2 * sizeof(std::uint32_t)); // skip header
   ((remainingBuffer = extract_arg_from_message(remainingBuffer, args)), ...);
   return buffer.size() - remainingBuffer.size();
 }

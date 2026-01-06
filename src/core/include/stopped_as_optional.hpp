@@ -37,7 +37,7 @@ struct StoppedAsOptionalState : StoppedAsOptionalStateBase<AwaiterPromise> {
   explicit StoppedAsOptionalState(std::coroutine_handle<AwaiterPromise> continuation)
       : StoppedAsOptionalStateBase<AwaiterPromise>{continuation} {}
 
-  auto get_result() -> std::optional<ValueType> {
+  auto get_result() -> std::optional<typename ValueOrMonostateType<ValueType>::type> {
     int completionType = this->mCompletionType.load(std::memory_order_acquire);
     if (completionType == 1 && this->mException) {
       std::rethrow_exception(this->mException);

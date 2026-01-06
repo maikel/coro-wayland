@@ -40,8 +40,10 @@ public:
     return [](AsyncQueue<Tp>* queue, Receiver receiver) -> IoTask<void> {
       std::stop_token stopToken = co_await ms::read_env(ms::get_stop_token);
       while (!stopToken.stop_requested()) {
-        Tp value = co_await queue->pop();
-        co_await receiver(std::move(value));
+        auto popTask = [](AsyncQueue<Tp>* queue) -> IoTask<Tp> {
+          co_return co_await queue->pop();
+        }(queue);
+        co_await receiver(std::move(popTask));
       }
     }(mQueue, std::move(receiver));
   }
@@ -62,7 +64,7 @@ template <class Tp> auto AsyncQueue<Tp>::push(const Tp& value) -> Task<void> {
   mQueue.push(value);
   if (!mWaiters.empty()) {
     auto waiter = mWaiters.front();
-    mWaiters.pop();
+    mWaiters.erase(mWaiters.begin());
     waiter.resume();
   }
 }
@@ -72,7 +74,7 @@ template <class Tp> auto AsyncQueue<Tp>::push(Tp&& value) -> Task<void> {
   mQueue.push(std::move(value));
   if (!mWaiters.empty()) {
     auto waiter = mWaiters.front();
-    mWaiters.pop();
+    mWaiters.erase(mWaiters.begin());
     waiter.resume();
   }
 }
@@ -86,7 +88,10 @@ template <class Tp> auto AsyncQueue<Tp>::pop() -> Task<Tp> {
             [](AsyncQueue* queue,
                std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) -> Task<void> {
               co_await queue->mScheduler.schedule();
-              std::remove(queue->mWaiters.begin(), queue->mWaiters.end(), handle);
+              auto iter = std::find(queue->mWaiters.begin(), queue->mWaiters.end(), handle);
+              if (iter != queue->mWaiters.end()) {
+                queue->mWaiters.erase(iter);
+              }
               handle.promise().unhandled_stopped();
             }(mAwaiter->mQueue, mAwaiter->mHandle));
       } catch (...) {
@@ -94,6 +99,8 @@ template <class Tp> auto AsyncQueue<Tp>::pop() -> Task<Tp> {
       }
       Awaiter* mAwaiter;
     };
+
+    Awaiter(AsyncQueue* queue) noexcept : mQueue(queue) {}
 
     AsyncQueue* mQueue;
     std::coroutine_handle<TaskPromise<Tp, TaskTraits>> mHandle;
@@ -103,7 +110,7 @@ template <class Tp> auto AsyncQueue<Tp>::pop() -> Task<Tp> {
         -> std::coroutine_handle<> {
       if (mQueue->mQueue.empty()) {
         mHandle = handle;
-        mQueue->mWaiters.push(handle);
+        mQueue->mWaiters.push_back(handle);
         std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
         mStopCallback.emplace(stopToken, OnStopRequested{this});
         return std::noop_coroutine();

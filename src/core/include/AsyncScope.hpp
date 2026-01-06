@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ImmovableBase.hpp"
+#include "Observable.hpp"
 
 #include <atomic>
 #include <coroutine>
@@ -33,6 +34,18 @@ struct AsyncScopeTask::promise_type {
   void unhandled_exception() noexcept;
 
   void unhandled_stopped() noexcept;
+};
+
+class AsyncScope;
+
+class AsyncScopeHandle {
+public:
+  explicit AsyncScopeHandle(AsyncScope& scope) noexcept : mScope(&scope) {}
+
+  template <class Sender> void spawn(Sender&& sender);
+
+private:
+  AsyncScope* mScope;
 };
 
 class AsyncScope : ImmovableBase {
@@ -71,5 +84,11 @@ struct AsyncScope::CloseAwaitable {
 
   void await_resume() noexcept;
 };
+
+auto create_scope() -> Observable<AsyncScopeHandle>;
+
+template <class Sender> void AsyncScopeHandle::spawn(Sender&& sender) {
+  mScope->spawn(std::forward<Sender>(sender));
+}
 
 } // namespace ms

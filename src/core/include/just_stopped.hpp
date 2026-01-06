@@ -26,6 +26,6 @@ public:
   void await_resume() noexcept {}
 };
 
-auto just_stopped() noexcept -> JustStoppedAwaiter { return JustStoppedAwaiter{}; }
+inline auto just_stopped() noexcept -> JustStoppedAwaiter { return JustStoppedAwaiter{}; }
 
 } // namespace ms

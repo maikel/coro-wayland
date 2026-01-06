@@ -219,6 +219,7 @@ auto make_context(const XmlTag& protocol) -> JinjaContext {
           if (!events.empty()) {
             obj.emplace("__tail", "true");
           }
+          obj.emplace("num", std::to_string(events.size()));
           events.emplace_back(JinjaObject{std::move(obj)});
         } else if (childTag.name == "enum") {
           enums.emplace_back(JinjaObject{make_subcontext(childTag)});

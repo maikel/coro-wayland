@@ -11,6 +11,8 @@
 
 #include "wayland/protocol.hpp"
 
+#include "Logging.hpp"
+
 namespace ms::wayland {
 
 {% for interface in interfaces %}
@@ -30,7 +32,27 @@ namespace ms::wayland {
   {% endif %}
 }
 {% endfor %}
-
+{% if interface.events %}
+auto {{ interface.cppname }}::events() -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> {
+  return as_observable(this->mEventQueue);
+}
+{% endif %}
+auto {{ interface.cppname }}::handle_message([[maybe_unused]] std::span<const char> message, OpCode code) -> IoTask<void> {
+  switch (code) {
+  {% for event in interface.events %}
+  case OpCode{ {{ event.num }} }: {
+    {{ event.cppname }} eventData;
+    this->get_connection().read_message(message{% for arg in event.args %}, eventData.{{ arg.name }}{% endfor %});
+    co_await this->mEventQueue.push(std::move(eventData));
+    break;
+  }
+  {% endfor %}
+  default:
+    Log::w("{{ interface.cppname }}: Received unknown op code {}", static_cast<std::uint16_t>(code));
+    break;
+  }
+  co_return;
+}
 {% endfor %}
 
 } // namespace ms

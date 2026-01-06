@@ -78,6 +78,41 @@ Connection::~Connection() {
   }
 }
 
+namespace {
+void log_message(std::string_view prefix, std::span<const char> message, std::size_t columns = 1) {
+    Log::d("Message data ({} bytes):", message.size());
+    std::size_t i = 0;
+    std::string line;
+    while (i < message.size()) {
+      line = std::format("{} {:04x}:", prefix, i);
+      for (std::size_t col = 0; col < columns; ++col) {
+        if (i + col * sizeof(std::uint32_t) < message.size()) {
+        std::uint32_t word = 0;
+        std::memcpy(&word, message.data() + i + col * sizeof(std::uint32_t),
+                    std::min(sizeof(std::uint32_t), message.size() - i + col * sizeof(std::uint32_t)));
+        line += std::format(" {:08x}", word);
+        } else {
+          line += "         ";
+        }
+      }
+      line += "   |   ";
+      for (std::size_t col = 0; col < columns && i + col * sizeof(std::uint32_t) < message.size(); ++col) {
+        for (std::size_t j = i + col * sizeof(std::uint32_t); j < i + (col + 1) * sizeof(std::uint32_t) && j < message.size(); ++j) {
+          if (std::isprint(static_cast<unsigned char>(message[j]))) {
+            line += std::format("{}", static_cast<char>(message[j]));
+          } else {
+            line += ".";
+          }
+        }
+        line += " ";
+      }
+      i += columns * sizeof(std::uint32_t);
+      Log::d("{}", line);
+      line.clear();
+    }
+  }
+}
+
 class ConnectionObservable {
 public:
   explicit ConnectionObservable(Connection* connection) noexcept : mConnection(connection) {}
@@ -207,7 +242,17 @@ private:
       if (proxyIt != connection->mProxies.end()) {
         ProxyInterface* proxy = proxyIt->second;
         Log::d("Dispatching message to proxy for object ID {}", objectId);
-        co_await proxy->handle_message(message);
+        log_message("S->C", message, 4);
+        co_await proxy->handle_message(message, OpCode{opCode});
+        std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
+        bytesRead -= messageLength;
+        if (bytesRead < kMinMessageSize) {
+          std::size_t additionalBytesRead =
+            co_await recv_at_least(connection, kMinMessageSize - bytesRead, std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
+          bytesRead += additionalBytesRead;
+          Log::d("Received additional {} bytes and a total of {} bytes from Wayland socket",
+                 additionalBytesRead, bytesRead);
+        }
       } else {
         Log::d("No proxy registered for object ID {}, ignoring message", objectId);
       }
@@ -242,19 +287,10 @@ auto FileDescriptorHandle::native_handle() const noexcept -> int { return mNativ
 
 auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::string_view& arg)
     -> std::span<const char> {
-  if (buffer.size() < sizeof(std::uint32_t)) {
-    throw std::runtime_error("Buffer too small to extract string argument");
-  }
-  std::uint32_t length = 0;
-  std::memcpy(&length, buffer.data(), sizeof(std::uint32_t));
-  buffer = buffer.subspan(sizeof(std::uint32_t));
-  if (buffer.size() < length) {
-    throw std::runtime_error("Buffer too small to extract string argument data");
-  }
-  arg = std::string_view(buffer.data(), length);
-  constexpr unsigned n = sizeof(std::uint32_t) - 1;
-  std::size_t paddedLength = (length + n) & ~n;
-  return buffer.subspan(paddedLength);
+  std::span<const char> strData;
+  buffer = extract_arg_from_message(buffer, strData);
+  arg = std::string_view(strData.data(), strData.size() - 1); // exclude null terminator
+  return buffer;
 }
 
 auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
@@ -280,8 +316,8 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, st
   if (buffer.size() < sizeof(std::int32_t)) {
     throw std::runtime_error("Buffer too small to extract int32 argument");
   }
-  std::memcpy(&arg, buffer.data(), 4);
-  return buffer.subspan(4);
+  std::memcpy(&arg, buffer.data(), sizeof(std::uint32_t));
+  return buffer.subspan(sizeof(std::uint32_t));
 }
 
 auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::uint32_t& arg)
@@ -289,8 +325,8 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, st
   if (buffer.size() < sizeof(std::uint32_t)) {
     throw std::runtime_error("Buffer too small to extract uint32 argument");
   }
-  std::memcpy(&arg, buffer.data(), 4);
-  return buffer.subspan(4);
+  std::memcpy(&arg, buffer.data(), sizeof(std::uint32_t));
+  return buffer.subspan(sizeof(std::uint32_t));
 }
 
 auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, ObjectId& arg)
@@ -299,9 +335,9 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, Ob
     throw std::runtime_error("Buffer too small to extract ObjectId argument");
   }
   std::uint32_t rawId = 0;
-  std::memcpy(&rawId, buffer.data(), 4);
+  std::memcpy(&rawId, buffer.data(), sizeof(std::uint32_t));
   arg = static_cast<ObjectId>(rawId);
-  return buffer.subspan(4);
+  return buffer.subspan(sizeof(std::uint32_t));
 }
 
 auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
@@ -313,7 +349,7 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
 
 auto ConnectionHandle::message_length(std::string_view arg) -> std::uint16_t {
   constexpr unsigned n = sizeof(std::uint32_t) - 1;
-  std::size_t paddedLength = (arg.size() + n) & ~n;
+  std::size_t paddedLength = (arg.size() + 1 + n) & ~n; // include null terminator
   return static_cast<std::uint16_t>(sizeof(std::uint32_t) + paddedLength);
 }
 
@@ -339,7 +375,7 @@ auto ConnectionHandle::message_length(const ProxyInterface*) -> std::uint16_t {
   return sizeof(std::uint32_t);
 }
 
-auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, std::string_view arg)
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const std::string& arg)
     -> std::span<char> {
   std::span<const char> strContent(arg.data(), arg.size() + 1); // include null terminator
   return put_arg_to_message(buffer, strContent);
@@ -397,13 +433,60 @@ auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, FileDescriptor
   return buffer;
 }
 
-auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const ProxyInterface* proxy) -> std::span<char> {
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const ProxyInterface* proxy)
+    -> std::span<char> {
   ObjectId objectId = proxy->get_object_id();
   return put_arg_to_message(buffer, objectId);
 }
 
 auto ConnectionHandle::get_next_object_id() -> ObjectId {
-    return static_cast<ObjectId>(mConnection->mNextObjectId.fetch_add(1));
-  }
+  return static_cast<ObjectId>(mConnection->mNextObjectId.fetch_add(1));
+}
+
+auto ConnectionHandle::unregister_interface(ProxyInterface* proxy) -> void {
+  mConnection->mProxies.at(proxy->get_object_id()) = nullptr;
+}
+
+void ConnectionHandle::send_message(std::vector<char> message,
+                                    std::optional<FileDescriptorHandle> fds) {
+  auto task = [](ConnectionHandle self, std::vector<char> message,
+                 std::optional<FileDescriptorHandle> fds) -> Task<void> {
+    char controlBuffer[sizeof(::cmsghdr) + sizeof(int)];
+    std::span<char> controlBufferSpan(controlBuffer);
+    ::msghdr msg{};
+    ::iovec iov{};
+    iov.iov_base = message.data();
+    iov.iov_len = message.size();
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    if (fds.has_value()) {
+      msg.msg_control = controlBufferSpan.data();
+      msg.msg_controllen = controlBufferSpan.size();
+      ::cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+      cmsg->cmsg_level = SOL_SOCKET;
+      cmsg->cmsg_type = SCM_RIGHTS;
+      cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+      int* fdData = reinterpret_cast<int*>(CMSG_DATA(cmsg));
+      fdData[0] = fds->native_handle();
+      msg.msg_controllen = cmsg->cmsg_len;
+    }
+    while (true) {
+      ssize_t rc = ::sendmsg(self.mConnection->get_fd(), &msg, 0);
+      int ec = errno;
+      if (rc == -1 && (ec != EAGAIN && ec != EWOULDBLOCK)) {
+        throw std::system_error(ec, std::generic_category(),
+                                "Failed to send message to Wayland socket");
+      } else if (rc != -1) {
+        Log::d("Sent {} bytes to Wayland socket", rc);
+        log_message("C->S", std::span<const char>(message.data(), message.size()), 4);
+        break;
+      } else {
+        Log::d("Wayland socket send would block, message not sent");
+        co_await self.mScheduler.poll(self.mConnection->get_fd(), POLLOUT);
+      }
+    }
+  }(*this, std::move(message), fds);
+  mConnection->mScope.spawn(std::move(task));
+}
 
 } // namespace ms::wayland
