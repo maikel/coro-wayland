@@ -33,9 +33,7 @@ public:
     requires(!std::same_as<std::decay_t<ObservableLike>, Observable> &&
              std::constructible_from<std::decay_t<ObservableLike>, ObservableLike> &&
              requires(std::decay_t<ObservableLike>& obs, ObservableReceiver receiver) {
-               {
-                 std::move(obs).subscribe(std::move(receiver))
-               } noexcept -> std::same_as<IoTask<void>>;
+               { std::move(obs).subscribe(std::move(receiver)) } -> std::same_as<IoTask<void>>;
              })
   Observable(ObservableLike&& observable) noexcept {
     struct ObserverLikeModel final : Model {
@@ -51,7 +49,7 @@ public:
     mValue = std::make_unique<ObserverLikeModel>(std::forward<ObservableLike>(observable));
   }
 
-  auto subscribe(ObservableReceiver receiver) && noexcept -> IoTask<void> {
+  auto subscribe(ObservableReceiver receiver) && -> IoTask<void> {
     auto value{std::move(mValue)};
     return value->subscribe(std::move(receiver));
   }

@@ -48,6 +48,8 @@ private:
   AsyncScope* mScope;
 };
 
+template <class Sender> struct NestSender;
+
 class AsyncScope : ImmovableBase {
 public:
   AsyncScope() = default;
@@ -64,6 +66,8 @@ public:
       co_return co_await std::forward<Sender>(sndr);
     }(*this, std::forward<Sender>(sender));
   }
+
+  template <class Sender> auto nest(Sender&& sender) -> NestSender<Sender>;
 
   struct CloseAwaitable;
 

@@ -41,7 +41,7 @@ auto {{ interface.cppname }}::handle_message([[maybe_unused]] std::span<const ch
   switch (code) {
   {% for event in interface.events %}
   case OpCode{ {{ event.num }} }: {
-    {{ event.cppname }} eventData;
+    {{ event.cppname }} eventData{};
     this->get_connection().read_message(message{% for arg in event.args %}, eventData.{{ arg.name }}{% endfor %});
     co_await this->mEventQueue.push(std::move(eventData));
     break;

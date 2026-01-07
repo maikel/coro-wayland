@@ -29,3 +29,11 @@ add_test(test_observable test_observable)
 add_executable(test_async_scope test_async_scope.cpp)
 target_link_libraries(test_async_scope MusicStreamer::Core)
 add_test(test_async_scope test_async_scope)
+
+add_executable(test_coro_guard test_coro_guard.cpp)
+target_link_libraries(test_coro_guard MusicStreamer::Core)
+add_test(test_coro_guard test_coro_guard)
+
+add_executable(test_use_resource test_use_resource.cpp)
+target_link_libraries(test_use_resource MusicStreamer::Core)
+add_test(test_use_resource test_use_resource)

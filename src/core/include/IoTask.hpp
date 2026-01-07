@@ -8,6 +8,8 @@
 
 namespace ms {
 
+class IoTaskEnv;
+
 /// Virtual function table for type-erased task contexts.
 /// Enables runtime polymorphism for parent promise operations.
 struct IoTaskContextVtable {
@@ -49,12 +51,52 @@ inline constexpr IoTaskContextVtable IoTaskContextVtableFor = {
       }
     }};
 
+class IoTaskContinuation {
+public:
+  IoTaskContinuation() = default;
+
+  IoTaskContinuation(const IoTaskContextVtable* vtable, void* promise) noexcept
+      : mVtable(vtable), mPromise(promise) {}
+
+  auto get_handle() const noexcept -> std::coroutine_handle<> {
+    return mVtable->get_continuation(mPromise);
+  }
+
+  void set_stopped() noexcept { mVtable->set_stopped(mPromise); }
+
+  auto get_env() const noexcept {
+    class AnyEnv {
+    private:
+      const IoTaskContinuation* mContext;
+
+    public:
+      explicit AnyEnv(const IoTaskContinuation* context) noexcept : mContext(context) {}
+
+      auto query(get_stop_token_t) const noexcept -> std::stop_token {
+        return mContext->mVtable->get_stop_token(mContext->mPromise);
+      }
+      auto query(get_scheduler_t) const noexcept -> IoScheduler {
+        return mContext->mVtable->get_scheduler(mContext->mPromise);
+      }
+    };
+    return AnyEnv{this};
+  }
+
+private:
+  const IoTaskContextVtable* mVtable{};
+  void* mPromise{};
+};
+
 /// Type-erased task context using vtable dispatch.
 /// Stores void* to parent promise with vtable for dynamic operations.
 class IoTaskContextBase {
 public:
   template <class AwaitingPromise>
   explicit IoTaskContextBase(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
+
+  template <class AwaitingPromise>
+  auto reset_continuation(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+      -> IoTaskContinuation;
 
   auto get_continuation() const noexcept -> std::coroutine_handle<>;
 
@@ -108,6 +150,15 @@ IoTaskContextBase::IoTaskContextBase(
     std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept {
   mVtable = &IoTaskContextVtableFor<AwaitingPromise>;
   mPromise = static_cast<void*>(&awaitingHandle.promise());
+}
+
+template <class AwaitingPromise>
+auto IoTaskContextBase::reset_continuation(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept -> IoTaskContinuation {
+  IoTaskContinuation old{mVtable, mPromise};
+  mVtable = &IoTaskContextVtableFor<AwaitingPromise>;
+  mPromise = static_cast<void*>(&awaitingHandle.promise());
+  return old;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

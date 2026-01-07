@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "AsyncScope.hpp"
-#include "just_stopped.hpp" 
+#include "just_stopped.hpp"
 #include "stopped_as_optional.hpp"
 
 namespace ms {
@@ -44,8 +44,7 @@ auto AsyncScope::close() noexcept -> CloseAwaitable { return CloseAwaitable{*thi
 struct AsyncScopeObservable {
   AsyncScopeObservable() = default;
 
-  template <class Receiver>
-  auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
+  template <class Receiver> auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
     AsyncScope scope;
     auto task = [](AsyncScope* scope) -> IoTask<AsyncScopeHandle> {
       co_return AsyncScopeHandle{*scope};
@@ -67,9 +66,6 @@ struct AsyncScopeObservable {
   }
 };
 
-auto create_scope() -> Observable<AsyncScopeHandle>
-{
-  return AsyncScopeObservable{};
-}
+auto create_scope() -> Observable<AsyncScopeHandle> { return AsyncScopeObservable{}; }
 
 } // namespace ms

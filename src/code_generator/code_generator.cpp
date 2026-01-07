@@ -150,10 +150,10 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
         childObj.emplace("type", "std::int32_t");
       } else if (type != childObj.end() && type->second.asString() == "string") {
         childObj.erase(type);
-        childObj.emplace("type", "std::string_view");
+        childObj.emplace("type", "std::string");
       } else if (type != childObj.end() && type->second.asString() == "array") {
         childObj.erase(type);
-        childObj.emplace("type", "std::span<const char>");
+        childObj.emplace("type", "std::vector<char>");
       } else if (type != childObj.end() && type->second.asString() == "fixed") {
         childObj.erase(type);
         childObj.emplace("type", "std::uint32_t");

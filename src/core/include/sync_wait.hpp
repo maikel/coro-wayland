@@ -44,7 +44,13 @@ template <class ValueType> struct SyncWaitState : SyncWaitStateBase {
 template <> struct SyncWaitState<void> : SyncWaitStateBase {
   explicit SyncWaitState(IoContext* ctx) : SyncWaitStateBase{ctx} {}
 
-  auto get_result() -> bool { return mCompletionType.load(std::memory_order_acquire) == 2; }
+  auto get_result() -> bool {
+    int completionType = mCompletionType.load(std::memory_order_acquire);
+    if (completionType == 1 && mException) {
+      std::rethrow_exception(mException);
+    }
+    return mCompletionType.load(std::memory_order_acquire) == 2;
+  }
 };
 
 struct SyncWaitTask {

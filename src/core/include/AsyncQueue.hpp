@@ -25,6 +25,8 @@ public:
 
   auto pop() -> Task<Tp>;
 
+  auto close() noexcept -> Task<void>;
+
 private:
   IoScheduler mScheduler;
   AsyncScope mScope;

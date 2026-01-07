@@ -31,6 +31,22 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Launch test_coro_guard",
+            "program": "${workspaceFolder}/build/src/core/tests/test_coro_guard",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_use_resource",
+            "program": "${workspaceFolder}/build/src/core/tests/test_use_resource",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Launch test_when_all",
             "program": "${workspaceFolder}/build/src/core/tests/test_when_all",
             "args": [],

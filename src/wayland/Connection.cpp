@@ -80,38 +80,41 @@ Connection::~Connection() {
 
 namespace {
 void log_message(std::string_view prefix, std::span<const char> message, std::size_t columns = 1) {
-    Log::d("Message data ({} bytes):", message.size());
-    std::size_t i = 0;
-    std::string line;
-    while (i < message.size()) {
-      line = std::format("{} {:04x}:", prefix, i);
-      for (std::size_t col = 0; col < columns; ++col) {
-        if (i + col * sizeof(std::uint32_t) < message.size()) {
+  Log::d("Message data ({} bytes):", message.size());
+  std::size_t i = 0;
+  std::string line;
+  while (i < message.size()) {
+    line = std::format("{} {:04x}:", prefix, i);
+    for (std::size_t col = 0; col < columns; ++col) {
+      if (i + col * sizeof(std::uint32_t) < message.size()) {
         std::uint32_t word = 0;
-        std::memcpy(&word, message.data() + i + col * sizeof(std::uint32_t),
-                    std::min(sizeof(std::uint32_t), message.size() - i + col * sizeof(std::uint32_t)));
+        std::memcpy(
+            &word, message.data() + i + col * sizeof(std::uint32_t),
+            std::min(sizeof(std::uint32_t), message.size() - i + col * sizeof(std::uint32_t)));
         line += std::format(" {:08x}", word);
-        } else {
-          line += "         ";
-        }
+      } else {
+        line += "         ";
       }
-      line += "   |   ";
-      for (std::size_t col = 0; col < columns && i + col * sizeof(std::uint32_t) < message.size(); ++col) {
-        for (std::size_t j = i + col * sizeof(std::uint32_t); j < i + (col + 1) * sizeof(std::uint32_t) && j < message.size(); ++j) {
-          if (std::isprint(static_cast<unsigned char>(message[j]))) {
-            line += std::format("{}", static_cast<char>(message[j]));
-          } else {
-            line += ".";
-          }
-        }
-        line += " ";
-      }
-      i += columns * sizeof(std::uint32_t);
-      Log::d("{}", line);
-      line.clear();
     }
+    line += "   |   ";
+    for (std::size_t col = 0; col < columns && i + col * sizeof(std::uint32_t) < message.size();
+         ++col) {
+      for (std::size_t j = i + col * sizeof(std::uint32_t);
+           j < i + (col + 1) * sizeof(std::uint32_t) && j < message.size(); ++j) {
+        if (std::isprint(static_cast<unsigned char>(message[j]))) {
+          line += std::format("{}", static_cast<char>(message[j]));
+        } else {
+          line += ".";
+        }
+      }
+      line += " ";
+    }
+    i += columns * sizeof(std::uint32_t);
+    Log::d("{}", line);
+    line.clear();
   }
 }
+} // namespace
 
 class ConnectionObservable {
 public:
@@ -239,7 +242,7 @@ private:
       }
       std::span<const char> message(buffer, messageLength);
       auto proxyIt = connection->mProxies.find(static_cast<ObjectId>(objectId));
-      if (proxyIt != connection->mProxies.end()) {
+      if (proxyIt != connection->mProxies.end() && proxyIt->second) {
         ProxyInterface* proxy = proxyIt->second;
         Log::d("Dispatching message to proxy for object ID {}", objectId);
         log_message("S->C", message, 4);
@@ -247,8 +250,9 @@ private:
         std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
         bytesRead -= messageLength;
         if (bytesRead < kMinMessageSize) {
-          std::size_t additionalBytesRead =
-            co_await recv_at_least(connection, kMinMessageSize - bytesRead, std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
+          std::size_t additionalBytesRead = co_await recv_at_least(
+              connection, kMinMessageSize - bytesRead,
+              std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
           bytesRead += additionalBytesRead;
           Log::d("Received additional {} bytes and a total of {} bytes from Wayland socket",
                  additionalBytesRead, bytesRead);
@@ -285,16 +289,7 @@ FileDescriptorHandle::FileDescriptorHandle(int handle) : mNativeHandle(handle) {
 
 auto FileDescriptorHandle::native_handle() const noexcept -> int { return mNativeHandle; }
 
-auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::string_view& arg)
-    -> std::span<const char> {
-  std::span<const char> strData;
-  buffer = extract_arg_from_message(buffer, strData);
-  arg = std::string_view(strData.data(), strData.size() - 1); // exclude null terminator
-  return buffer;
-}
-
-auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
-                                                std::span<const char>& arg)
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, std::string& arg)
     -> std::span<const char> {
   if (buffer.size() < sizeof(std::uint32_t)) {
     throw std::runtime_error("Buffer too small to extract array argument");
@@ -305,7 +300,24 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
   if (buffer.size() < length) {
     throw std::runtime_error("Buffer too small to extract array argument data");
   }
-  arg = buffer.subspan(0, length);
+  arg.assign_range(buffer.subspan(0, length - 1)); // exclude null terminator
+  constexpr unsigned n = sizeof(std::uint32_t) - 1;
+  std::size_t paddedLength = (length + n) & ~n;
+  return buffer.subspan(paddedLength);
+}
+
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
+                                                std::vector<char>& arg) -> std::span<const char> {
+  if (buffer.size() < sizeof(std::uint32_t)) {
+    throw std::runtime_error("Buffer too small to extract array argument");
+  }
+  std::uint32_t length = 0;
+  std::memcpy(&length, buffer.data(), sizeof(std::uint32_t));
+  buffer = buffer.subspan(sizeof(std::uint32_t));
+  if (buffer.size() < length) {
+    throw std::runtime_error("Buffer too small to extract array argument data");
+  }
+  arg.assign_range(buffer.subspan(0, length));
   constexpr unsigned n = sizeof(std::uint32_t) - 1;
   std::size_t paddedLength = (length + n) & ~n;
   return buffer.subspan(paddedLength);
@@ -347,7 +359,7 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
   return buffer;
 }
 
-auto ConnectionHandle::message_length(std::string_view arg) -> std::uint16_t {
+auto ConnectionHandle::message_length(const std::string& arg) -> std::uint16_t {
   constexpr unsigned n = sizeof(std::uint32_t) - 1;
   std::size_t paddedLength = (arg.size() + 1 + n) & ~n; // include null terminator
   return static_cast<std::uint16_t>(sizeof(std::uint32_t) + paddedLength);

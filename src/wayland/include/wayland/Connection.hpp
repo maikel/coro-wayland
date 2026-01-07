@@ -71,7 +71,7 @@ private:
 
   void send_message(std::vector<char> message, std::optional<FileDescriptorHandle> fds);
 
-  auto message_length(std::string_view arg) -> std::uint16_t;
+  auto message_length(const std::string& arg) -> std::uint16_t;
   auto message_length(std::span<const char> arg) -> std::uint16_t;
   auto message_length(std::int32_t) -> std::uint16_t;
   auto message_length(std::uint32_t) -> std::uint16_t;
@@ -87,9 +87,9 @@ private:
   auto put_arg_to_message(std::span<char> buffer, FileDescriptorHandle arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, const ProxyInterface*) -> std::span<char>;
 
-  auto extract_arg_from_message(std::span<const char> buffer, std::string_view& arg)
+  auto extract_arg_from_message(std::span<const char> buffer, std::string& arg)
       -> std::span<const char>;
-  auto extract_arg_from_message(std::span<const char> buffer, std::span<const char>& arg)
+  auto extract_arg_from_message(std::span<const char> buffer, std::vector<char>& arg)
       -> std::span<const char>;
   auto extract_arg_from_message(std::span<const char> buffer, std::int32_t& arg)
       -> std::span<const char>;

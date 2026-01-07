@@ -98,6 +98,9 @@ public:
   auto get_env() const noexcept -> typename Traits::env_type;
   auto get_continuation() -> std::coroutine_handle<>;
 
+  template <class AwaitingPromise>
+  auto reset_continuation(std::coroutine_handle<AwaitingPromise> continuation) noexcept;
+
 private:
   std::coroutine_handle<TaskPromise<Tp, Traits>> mHandle;
   ManualLifetime<typename Traits::context_type> mContext;
@@ -126,6 +129,9 @@ public:
   static constexpr auto final_suspend() noexcept -> FinalAwaiter;
 
   void set_operation_state(TaskAwaiter<Tp, Traits>* opState) noexcept;
+
+  template <class AwaitingPromise>
+  auto reset_continuation(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
 
   void unhandled_exception();
 
@@ -204,12 +210,36 @@ inline constexpr TaskContextVtable TaskContextVtableFor = {
       }
     }};
 
+class TaskContinuation {
+public:
+  TaskContinuation() = default;
+
+  TaskContinuation(const TaskContextVtable* vtable, void* promise) noexcept
+      : mVtable(vtable), mPromise(promise) {}
+
+  auto get_handle() const noexcept -> std::coroutine_handle<> {
+    return mVtable->get_continuation(mPromise);
+  }
+
+  void set_stopped() noexcept { mVtable->set_stopped(mPromise); }
+
+  auto get_env() const noexcept -> TaskEnv { return mVtable->get_env(mPromise); }
+
+private:
+  const TaskContextVtable* mVtable{};
+  void* mPromise{};
+};
+
 /// Type-erased task context using vtable dispatch.
 /// Stores void* to parent promise with vtable for dynamic operations.
 class TaskContext {
 public:
   template <class AwaitingPromise>
   explicit TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept;
+
+  template <class AwaitingPromise>
+  auto reset_continuation(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+      -> TaskContinuation;
 
   auto get_continuation() const noexcept -> std::coroutine_handle<>;
 
@@ -291,6 +321,15 @@ TaskContext::TaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) 
     : mVtable(&TaskContextVtableFor<AwaitingPromise>),
       mPromise(static_cast<void*>(&awaitingHandle.promise())) {}
 
+template <class AwaitingPromise>
+auto TaskContext::reset_continuation(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
+    -> TaskContinuation {
+  TaskContinuation old{mVtable, mPromise};
+  mVtable = &TaskContextVtableFor<AwaitingPromise>;
+  mPromise = static_cast<void*>(&awaitingHandle.promise());
+  return old;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                                TaskAwaiter<Tp, Traits>
 
@@ -337,6 +376,13 @@ auto TaskAwaiter<Tp, Traits>::get_continuation() -> std::coroutine_handle<> {
   return mContext->get_continuation();
 }
 
+template <class Tp, class Traits>
+template <class AwaitingPromise>
+auto TaskAwaiter<Tp, Traits>::reset_continuation(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept {
+  return mContext->reset_continuation(awaitingHandle);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                             TaskPromiseBase<Tp, Context>
 
@@ -363,6 +409,13 @@ template <class Tp, class Traits> void TaskPromiseBase<Tp, Traits>::unhandled_ex
 template <class Tp, class Traits>
 void TaskPromiseBase<Tp, Traits>::set_operation_state(TaskAwaiter<Tp, Traits>* opState) noexcept {
   mOpState = opState;
+}
+
+template <class Tp, class Traits>
+template <class AwaitingPromise>
+auto TaskPromiseBase<Tp, Traits>::reset_continuation(
+    std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept {
+  return mOpState->reset_continuation(awaitingHandle);
 }
 
 /// Query environment from operation state.
