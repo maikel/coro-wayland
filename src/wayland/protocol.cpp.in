@@ -9,7 +9,8 @@
  * definition or update the generator logic itself.
  */
 
-#include "wayland/protocol.hpp"
+#include "wayland/protocol.hpp"{% if extension %}
+#include "wayland/{{ extension }}.hpp"{% endif %}
 
 #include "stopped_as_optional.hpp"
 #include "just_stopped.hpp"

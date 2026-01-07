@@ -1,14 +1,35 @@
+find_file(WAYLAND_XML wayland.xml PATHS /usr/share/wayland)
+find_file(XDG_SHELL_XML xdg-shell.xml PATHS /usr/share/wayland-protocols/stable/xdg-shell)
+
+if (NOT WAYLAND_XML)
+  message(FATAL_ERROR "Could not find wayland.xml")
+endif()
+
+if (NOT XDG_SHELL_XML)
+  message(FATAL_ERROR "Could not find xdg-shell.xml")
+endif()
+
+message(STATUS "Using Wayland XML: ${WAYLAND_XML}")
+message(STATUS "Using XDG Shell XML: ${XDG_SHELL_XML}")
+
 add_custom_command(
-  OUTPUT ${CMAKE_BINARY_DIR}/generated/include/wayland/protocol.hpp ${CMAKE_BINARY_DIR}/generated/protocol.cpp
+  OUTPUT
+    ${CMAKE_BINARY_DIR}/generated/include/wayland/protocol.hpp
+    ${CMAKE_BINARY_DIR}/generated/protocol.cpp
+    ${CMAKE_BINARY_DIR}/generated/include/wayland/XdgShell.hpp
+    ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/generated/include/wayland
-  COMMAND code_generator < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.hpp.in > ${CMAKE_BINARY_DIR}/generated/include/wayland/protocol.hpp
-  COMMAND code_generator < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.cpp.in > ${CMAKE_BINARY_DIR}/generated/protocol.cpp
-  COMMAND clang-format-20 -i ${CMAKE_BINARY_DIR}/generated/include/wayland/protocol.hpp
-  COMMAND clang-format-20 -i ${CMAKE_BINARY_DIR}/generated/protocol.cpp
+  COMMAND code_generator -i ${WAYLAND_XML} < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.hpp.in | clang-format-20  > ${CMAKE_BINARY_DIR}/generated/include/wayland/protocol.hpp
+  COMMAND code_generator -i ${WAYLAND_XML} < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.cpp.in | clang-format-20 > ${CMAKE_BINARY_DIR}/generated/protocol.cpp
+  COMMAND code_generator -i ${XDG_SHELL_XML} -e XdgShell < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.hpp.in | clang-format-20  > ${CMAKE_BINARY_DIR}/generated/include/wayland/XdgShell.hpp
+  COMMAND code_generator -i ${XDG_SHELL_XML} -e XdgShell < ${CMAKE_CURRENT_SOURCE_DIR}/protocol.cpp.in | clang-format-20 > ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp
   DEPENDS code_generator protocol.hpp.in protocol.cpp.in
 )
 
-add_library(MusicStreamer_Wayland Connection.cpp ${CMAKE_BINARY_DIR}/generated/protocol.cpp)
+add_library(MusicStreamer_Wayland
+  Connection.cpp
+  ${CMAKE_BINARY_DIR}/generated/protocol.cpp
+  ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp)
 target_include_directories(MusicStreamer_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
 target_link_libraries(MusicStreamer_Wayland PUBLIC MusicStreamer::Core MusicStreamer::logging)
 add_library(MusicStreamer::Wayland ALIAS MusicStreamer_Wayland)

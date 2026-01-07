@@ -16,13 +16,14 @@
 namespace ms {
 struct ProgramOptions {
   std::filesystem::path pathToWaylandXml;
+  std::string extension;
 };
 
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions;
 
 auto read_full_file(std::filesystem::path file) -> std::string;
 
-auto make_context(const XmlTag& protocol) -> JinjaContext;
+auto make_context(const XmlTag& protocol, std::string extension) -> JinjaContext;
 
 } // namespace ms
 
@@ -33,7 +34,7 @@ int main(int argc, char** argv) {
   const std::string templateContent(std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>{});
   try {
-    ms::JinjaContext context = make_context(protocol);
+    ms::JinjaContext context = make_context(protocol, programOptions.extension);
     ms::TemplateDocument document = ms::make_document(templateContent, "<stdin>");
     document.render(context, std::cout);
   } catch (const ms::RenderError& e) {
@@ -48,8 +49,11 @@ namespace ms {
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions {
   ProgramOptions result{};
   result.pathToWaylandXml = "/usr/share/wayland/wayland.xml";
-  static ::option long_options[] = {::option{"input", required_argument, nullptr, 'i'}, ::option{}};
-  const char* short_options = "i:";
+  result.extension = "";
+  static ::option long_options[] = {::option{"input", required_argument, nullptr, 'i'},
+                                    ::option{"extension", required_argument, nullptr, 'e'},
+                                    ::option{}};
+  const char* short_options = "i:e:";
   int option_index = 0;
   int parsedShortOpt = ::getopt_long(argc, argv, short_options, long_options, &option_index);
   while (parsedShortOpt != -1) {
@@ -57,6 +61,11 @@ auto parse_command_line_args(int argc, char** argv) -> ProgramOptions {
     case 'i':
       if (optarg) {
         result.pathToWaylandXml = optarg;
+      }
+      break;
+    case 'e':
+      if (optarg) {
+        result.extension = optarg;
       }
       break;
     default:
@@ -104,6 +113,7 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
   JinjaArray args;
   JinjaArray entries;
   std::size_t count = 0;
+  bool isBind = root.at("name").asString() == "bind";
   for (const XmlNode& node : tag.children) {
     if (!node.isTag()) {
       continue;
@@ -132,8 +142,26 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
         continue;
       } else if (type != childObj.end() && interface == childObj.end() &&
                  type->second.asString() == "new_id") {
-        childObj.erase(type);
-        childObj.emplace("type", "ObjectId");
+        if (isBind) {
+          // In the wl_registry bind request we need to expand new_id to (string, version, ObjectId)
+          std::map<std::string, JinjaContext> stringArg{{{"name", JinjaContext{"interface"}},
+                                                         {"type", JinjaContext{"std::string"}},
+                                                         {"__tail", JinjaContext{"true"}}}};
+          std::map<std::string, JinjaContext> versionArg{{{"name", JinjaContext{"version"}},
+                                                          {"type", JinjaContext{"std::uint32_t"}},
+                                                          {"__tail", JinjaContext{"true"}}}};
+          std::map<std::string, JinjaContext> objectIdArg{{{"name", JinjaContext{"new_id"}},
+                                                           {"type", JinjaContext{"ObjectId"}},
+                                                           {"__tail", JinjaContext{"true"}}}};
+          args.emplace_back(JinjaObject{std::move(stringArg)});
+          args.emplace_back(JinjaObject{std::move(versionArg)});
+          args.emplace_back(JinjaObject{std::move(objectIdArg)});
+          ++count;
+          continue;
+        } else {
+          childObj.erase(type);
+          childObj.emplace("type", "ObjectId");
+        }
       } else if (type != childObj.end() && interface != childObj.end() &&
                  type->second.asString() == "object") {
         childObj.erase(type);
@@ -181,8 +209,9 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
   return root;
 }
 
-auto make_context(const XmlTag& protocol) -> JinjaContext {
+auto make_context(const XmlTag& protocol, std::string extension) -> JinjaContext {
   std::map<std::string, JinjaContext> root;
+  root.emplace("extension", extension);
   for (const auto& [name, value] : protocol.attributes) {
     root.emplace(name, value);
   }

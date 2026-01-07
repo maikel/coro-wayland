@@ -12,7 +12,8 @@
 #pragma once
 
 #include "AsyncQueue.hpp"
-#include "wayland/Connection.hpp"
+#include "wayland/Connection.hpp"{% if extension %}
+#include "wayland/protocol.hpp"{% endif %}
 
 #include <cstdint>
 #include <string>

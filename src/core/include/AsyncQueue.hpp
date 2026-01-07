@@ -15,9 +15,13 @@
 
 namespace ms {
 
+template <class Tp> class AsyncQueueHandle;
+
 template <class Tp> class AsyncQueue : ImmovableBase {
 public:
   explicit AsyncQueue(IoScheduler scheduler) noexcept;
+
+  static auto make() -> Observable<AsyncQueueHandle<Tp>>;
 
   template <class... Args>
     requires std::constructible_from<Tp, Args...>
@@ -32,6 +36,22 @@ private:
   AsyncScope mScope;
   std::queue<Tp> mQueue;
   std::vector<std::coroutine_handle<TaskPromise<Tp, TaskTraits>>> mWaiters;
+};
+
+template <class Tp> class AsyncQueueHandle {
+public:
+  explicit AsyncQueueHandle(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
+
+  template <class... Args>
+    requires std::constructible_from<Tp, Args...>
+  auto push(Args&&... args) {
+    return mQueue->push(std::forward<Args>(args)...);
+  }
+
+  auto pop() { return mQueue->pop(); }
+
+private:
+  AsyncQueue<Tp>* mQueue;
 };
 
 template <class Tp> class AsyncQueueObservable {
@@ -129,5 +149,20 @@ template <class Tp> auto AsyncQueue<Tp>::pop() {
 }
 
 template <class Tp> auto AsyncQueue<Tp>::close() noexcept -> Task<void> { co_await mScope.close(); }
+
+template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueueHandle<Tp>> {
+  using Subscriber = std::function<auto(IoTask<AsyncQueueHandle<Tp>>)->IoTask<void>>;
+  struct MakeObservable {
+    auto subscribe(Subscriber subscriber) noexcept -> IoTask<void> {
+      AsyncQueue<Tp> queue{co_await ms::read_env(ms::get_scheduler)};
+      auto handleTask = [](AsyncQueue<Tp>* queue) -> IoTask<AsyncQueueHandle<Tp>> {
+        co_return AsyncQueueHandle<Tp>{*queue};
+      }(&queue);
+      co_await subscriber(std::move(handleTask));
+      co_await queue.close();
+    }
+  };
+  return MakeObservable{};
+}
 
 } // namespace ms

@@ -18,16 +18,18 @@ struct ClosedScopeError : public std::runtime_error {
   ClosedScopeError() : std::runtime_error("AsyncScope is closed") {}
 };
 
-struct AsyncScopeTask {
+template <class Env> struct AsyncScopeTask {
   struct promise_type;
 };
 
-struct AsyncScopeTask::promise_type : ConnectablePromise {
+template <class Env> struct AsyncScopeTask<Env>::promise_type : ConnectablePromise {
   AsyncScope& mScope;
+  Env mEnv;
 
-  template <class Sender> promise_type(AsyncScope& scope, Sender&&) noexcept : mScope{scope} {}
+  template <class Sender>
+  promise_type(AsyncScope& scope, Env env, Sender&&) noexcept : mScope{scope}, mEnv{env} {}
 
-  auto get_return_object() noexcept -> AsyncScopeTask;
+  auto get_return_object() noexcept -> AsyncScopeTask<Env>;
 
   auto initial_suspend() noexcept -> std::suspend_never;
 
@@ -38,6 +40,8 @@ struct AsyncScopeTask::promise_type : ConnectablePromise {
   void unhandled_exception() noexcept;
 
   void unhandled_stopped() noexcept;
+
+  auto get_env() const noexcept -> Env { return mEnv; }
 };
 
 class AsyncScope;
@@ -46,7 +50,7 @@ class AsyncScopeHandle {
 public:
   explicit AsyncScopeHandle(AsyncScope& scope) noexcept : mScope(&scope) {}
 
-  template <class Sender> void spawn(Sender&& sender);
+  template <class Sender, class Env = EmptyEnv> void spawn(Sender&& sender, Env env = Env());
 
 private:
   AsyncScope* mScope;
@@ -64,7 +68,7 @@ class AsyncScope : ImmovableBase {
 public:
   AsyncScope() = default;
 
-  template <class Sender> void spawn(Sender&& sender) {
+  template <class Sender, class Env = EmptyEnv> void spawn(Sender&& sender, Env env = Env()) {
     std::ptrdiff_t expected = 1;
     while (!mActiveTasks.compare_exchange_weak(expected, expected + 0b10, std::memory_order_acq_rel,
                                                std::memory_order_acquire)) {
@@ -72,9 +76,9 @@ public:
         throw std::runtime_error("Cannot spawn new tasks on a stopped AsyncScope");
       }
     }
-    [](AsyncScope&, Sender sndr) -> AsyncScopeTask {
+    [](AsyncScope&, Env, Sender sndr) -> AsyncScopeTask<Env> {
       co_return co_await std::forward<Sender>(sndr);
-    }(*this, std::forward<Sender>(sender));
+    }(*this, env, std::forward<Sender>(sender));
   }
 
   template <class Sender> auto nest(Sender&& sender) -> NestSender<Sender>;
@@ -86,7 +90,7 @@ public:
   template <class AwaiterPromise> struct NestAwaitableBase;
 
 private:
-  friend struct AsyncScopeTask::promise_type;
+  template <class Env> friend struct AsyncScopeTask;
   std::atomic<std::ptrdiff_t> mActiveTasks{1};
   std::coroutine_handle<> mWaitingHandle;
 };
@@ -101,10 +105,40 @@ struct AsyncScope::CloseAwaitable {
   void await_resume() noexcept;
 };
 
+template <class Env>
+auto AsyncScopeTask<Env>::promise_type::get_return_object() noexcept -> AsyncScopeTask<Env> {
+  return AsyncScopeTask<Env>{};
+}
+
+template <class Env>
+auto AsyncScopeTask<Env>::promise_type::initial_suspend() noexcept -> std::suspend_never {
+  return {};
+}
+
+template <class Env>
+auto AsyncScopeTask<Env>::promise_type::final_suspend() noexcept -> std::suspend_never {
+  return {};
+}
+
+template <class Env> void AsyncScopeTask<Env>::promise_type::return_void() noexcept {
+  if (mScope.mActiveTasks.fetch_sub(0b10, std::memory_order_acq_rel) == 0b10) {
+    mScope.mWaitingHandle.resume();
+  }
+}
+
+template <class Env> void AsyncScopeTask<Env>::promise_type::unhandled_exception() noexcept {
+  return_void();
+}
+
+template <class Env> void AsyncScopeTask<Env>::promise_type::unhandled_stopped() noexcept {
+  return_void();
+  std::coroutine_handle<promise_type>::from_promise(*this).destroy();
+}
+
 auto create_scope() -> Observable<AsyncScopeHandle>;
 
-template <class Sender> void AsyncScopeHandle::spawn(Sender&& sender) {
-  mScope->spawn(std::forward<Sender>(sender));
+template <class Sender, class Env> void AsyncScopeHandle::spawn(Sender&& sender, Env env) {
+  mScope->spawn(std::forward<Sender>(sender), env);
 }
 
 template <class AwaiterPromise> struct AsyncScope::NestAwaitableBase : ImmovableBase {
