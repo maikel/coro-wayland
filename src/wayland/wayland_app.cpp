@@ -14,8 +14,8 @@
 
 #include <iostream>
 
-auto create_window(ms::wayland::Registry& registry,
-                   ms::AsyncUnorderedMap<std::string, std::uint32_t>& nameFromInterface)
+auto create_window(ms::wayland::Registry registry,
+                   ms::AsyncUnorderedMapHandle<std::string, std::uint32_t> nameFromInterface)
     -> ms::IoTask<void> {
   std::uint32_t compositorName =
       co_await nameFromInterface.wait_for(ms::wayland::Compositor::interface_name());
@@ -29,7 +29,7 @@ int main() {
     ms::wayland::Display display = co_await ms::use_resource(
         ms::wayland::Display::make(ms::wayland::ObjectId::Display, connHandle));
     ms::wayland::Registry registry = co_await ms::use_resource(display.get_registry());
-    ms::AsyncUnorderedMap<std::string, std::uint32_t> nameFromInterface{connHandle.get_scheduler()};
+    auto nameFromInterface = co_await ms::use_resource(ms::make_async_unordered_map<std::string, std::uint32_t>());
     auto handleEvents =
         registry.events().subscribe([&](auto eventTask) noexcept -> ms::IoTask<void> {
           auto event = co_await std::move(eventTask);

@@ -5,32 +5,37 @@
 
 #include "AsyncScope.hpp"
 #include "IoContext.hpp"
+#include "read_env.hpp"
+#include "queries.hpp"
 
 #include <unordered_map>
 
 namespace ms {
 
-template <class KeyT, class ValueT> class AsyncUnorderedMap {
+template <class KeyT, class ValueT> class AsyncUnorderedMap : ImmovableBase {
 public:
-  auto emplace(KeyT key, ValueT value) -> Task<bool> {
-    co_await mScheduler.schedule();
-    auto [pos, inserted] = mMap.emplace(key, std::move(value));
+  auto emplace(KeyT key, ValueT value) {
+    return mScope.nest([](AsyncUnorderedMap* self, KeyT key, ValueT value) -> Task<bool> {
+    co_await self->mScheduler.schedule();
+    auto [pos, inserted] = self->mMap.emplace(key, std::move(value));
     if (!inserted) {
       co_return false;
     }
-    if (auto it = mWaiters.find(key); it != mWaiters.end()) {
+    if (auto it = self->mWaiters.find(key); it != self->mWaiters.end()) {
       for (auto& handle : it->second) {
         handle.resume();
       }
-      mWaiters.erase(it);
+      self->mWaiters.erase(it);
     }
     co_return true;
+  }(this, std::move(key), std::move(value)));
   }
 
   template <class KeyLikeT>
     requires std::constructible_from<KeyT, KeyLikeT>
-  auto wait_for(const KeyLikeT& key) -> Task<ValueT> {
-    co_await mScheduler.schedule();
+  auto wait_for(const KeyLikeT& key) {
+    return mScope.nest([](AsyncUnorderedMap* self, const KeyLikeT& key) -> Task<ValueT> {
+    co_await self->mScheduler.schedule();
     struct Awaiter {
       struct OnStopRequested {
         void operator()() noexcept try {
@@ -89,7 +94,8 @@ public:
         }
       }
     };
-    co_return co_await Awaiter{this, KeyT{key}};
+    co_return co_await Awaiter{self, KeyT{key}};
+  }(this, key));
   }
 
   auto close() -> Task<void> { co_await mScope.close(); }
@@ -103,5 +109,41 @@ private:
   std::unordered_map<KeyT, std::vector<std::coroutine_handle<TaskPromise<ValueT, TaskTraits>>>>
       mWaiters;
 };
+
+template <class KeyT, class ValueT>
+class AsyncUnorderedMapHandle {
+public:
+  explicit AsyncUnorderedMapHandle(AsyncUnorderedMap<KeyT, ValueT>& map) noexcept : mMap(&map) {}
+
+  template <class KeyLikeT>
+    requires std::constructible_from<KeyT, KeyLikeT>
+  auto wait_for(const KeyLikeT& key) const {
+    return mMap->wait_for(key);
+  }
+
+  auto emplace(KeyT key, ValueT value) const {
+    return mMap->emplace(std::move(key), std::move(value));
+  }
+
+private:
+  AsyncUnorderedMap<KeyT, ValueT>* mMap;
+};
+
+template <class KeyT, class ValueT>
+auto make_async_unordered_map() -> Observable<AsyncUnorderedMapHandle<KeyT, ValueT>> {
+  struct AsyncUnorderedMapObservable {
+    auto subscribe(std::function<auto(IoTask<AsyncUnorderedMapHandle<KeyT, ValueT>>)->IoTask<void>> subscriber) noexcept -> IoTask<void> {
+        IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+        AsyncUnorderedMap<KeyT, ValueT> map{scheduler};
+        auto task = [](AsyncUnorderedMap<KeyT, ValueT>* map) -> IoTask<AsyncUnorderedMapHandle<KeyT, ValueT>> {
+          co_return AsyncUnorderedMapHandle<KeyT, ValueT>{*map};
+        }(&map);
+        co_await subscriber(std::move(task));
+        co_await map.close();
+    }
+  };
+  return Observable<AsyncUnorderedMapHandle<KeyT, ValueT>>{
+      AsyncUnorderedMapObservable{}};
+}
 
 } // namespace ms
