@@ -12,7 +12,8 @@ template <class AwaiterPromise> struct CoroGuardTask {
   std::coroutine_handle<promise_type> mHandle;
 };
 
-template <class AwaiterPromise> struct CoroGuardTask<AwaiterPromise>::promise_type {
+template <class AwaiterPromise>
+struct CoroGuardTask<AwaiterPromise>::promise_type : public ConnectablePromise {
   using ContinuationType = decltype(std::declval<AwaiterPromise&>().reset_continuation(
       std::declval<std::coroutine_handle<promise_type>>()));
 

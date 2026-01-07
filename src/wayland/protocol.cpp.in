@@ -11,37 +11,35 @@
 
 #include "wayland/protocol.hpp"
 
+#include "stopped_as_optional.hpp"
+#include "just_stopped.hpp"
+
 #include "Logging.hpp"
 
 namespace ms::wayland {
 
 {% for interface in interfaces %}
-{{ interface.cppname }}::{{ interface.cppname }}(ObjectId objectId, ConnectionHandle connection)
+struct {{ interface.cppname }}Context : ProxyInterface {
+  explicit {{ interface.cppname }}Context(ObjectId objectId, ConnectionHandle connection);
+  ~{{ interface.cppname }}Context() override;
+
+  auto handle_message(std::span<const char> message, OpCode opCode) -> IoTask<void> override;
+  auto close() -> Task<void>;
+
+  {% if interface.events %}
+  AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ interface.cppname }}::{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
+};
+
+{{ interface.cppname }}Context::{{ interface.cppname }}Context(ObjectId objectId, ConnectionHandle connection)
 : ProxyInterface(objectId, connection){% if interface.events %}, mEventQueue(connection.get_scheduler()){% endif %} {}
 
-{{ interface.cppname }}::~{{ interface.cppname }}() = default;
+{{ interface.cppname }}Context::~{{ interface.cppname }}Context() = default;
 
-{% for request in interface.requests %}
-{% if request.return_type %}auto{% else %}void{% endif %}
-{{ interface.cppname }}::{{ request.name }}({% for arg in request.args %}{% if arg.__tail %}, {% endif %}{{arg.type}} {{arg.name}}{% endfor %})
-{% if request.return_type %}-> {{ request.return_type }}{% endif %} {
-  {% if request.return_type %}auto newObjectId = this->get_connection().get_next_object_id();
-  this->get_connection().send_message(this->get_object_id(), OpCode{ {{ request.num }} }, newObjectId{% for arg in request.args %}, {{ arg.name }}{% endfor %});
-  return {{ request.return_type }}{newObjectId, this->get_connection()};
-  {% else %}this->get_connection().send_message(this->get_object_id(), OpCode{ {{ request.num }} }{% for arg in request.args %}, {{ arg.name }}{% endfor %});
-  {% endif %}
-}
-{% endfor %}
-{% if interface.events %}
-auto {{ interface.cppname }}::events() -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> {
-  return as_observable(this->mEventQueue);
-}
-{% endif %}
-auto {{ interface.cppname }}::handle_message([[maybe_unused]] std::span<const char> message, OpCode code) -> IoTask<void> {
+auto {{ interface.cppname }}Context::handle_message([[maybe_unused]] std::span<const char> message, OpCode code) -> IoTask<void> {
   switch (code) {
   {% for event in interface.events %}
   case OpCode{ {{ event.num }} }: {
-    {{ event.cppname }} eventData{};
+    {{ interface.cppname }}::{{ event.cppname }} eventData{};
     this->get_connection().read_message(message{% for arg in event.args %}, eventData.{{ arg.name }}{% endfor %});
     co_await this->mEventQueue.push(std::move(eventData));
     break;
@@ -53,6 +51,83 @@ auto {{ interface.cppname }}::handle_message([[maybe_unused]] std::span<const ch
   }
   co_return;
 }
+
+auto {{ interface.cppname }}Context::close() -> Task<void> {
+  {% if interface.events %}co_await mEventQueue.close();{% else %}co_return;{% endif %}
+}
+
+auto {{ interface.cppname }}::make(ObjectId objectId, ConnectionHandle connection, std::function<void()> syncInit) -> Observable<{{ interface.cppname }}> {
+  struct WaylandResource {
+    auto subscribe(std::function<auto(IoTask<{{ interface.cppname }}>) -> IoTask<void>> receiver) const -> IoTask<void> {
+      return [](ConnectionHandle connection, ObjectId objectId, std::function<void()> syncInit, auto receiver) -> IoTask<void> {
+        {{interface.cppname }}Context context{objectId, connection};
+        if (syncInit) {
+          syncInit();
+        }
+        auto task = []( {{ interface.cppname }}Context* context) -> IoTask<{{ interface.cppname }}> {
+          co_return {{ interface.cppname }}{context};
+        }(&context);
+        bool stopped = false;
+        std::exception_ptr exception;
+        try {
+          Log::d("Starting {{ interface.cppname }} Resource subscription.");
+          stopped = (co_await ms::stopped_as_optional(
+                         receiver(std::move(task))))
+                        .has_value();
+        } catch (const std::exception& e) {
+          Log::e("Caught exception in {{ interface.cppname }} Resource: {}", e.what());
+          exception = std::current_exception();
+        } catch (...) {
+          Log::e("Caught unknown exception in {{ interface.cppname }} Resource.");
+          exception = std::current_exception();
+        }
+        Log::d("Closing {{ interface.cppname }} context.");
+        co_await context.close();
+        if (stopped) {
+          co_await ms::just_stopped();
+        }
+        if (exception) {
+          std::rethrow_exception(exception);
+        }
+      }(connection, objectId, mSyncInit, std::move(receiver));
+    }
+
+    ObjectId objectId;
+    ConnectionHandle connection;
+    std::function<void()> mSyncInit;
+  };
+  return Observable<{{ interface.cppname }}>{WaylandResource{objectId, connection, std::move(syncInit)}};
+}
+
+{{ interface.cppname }}::{{ interface.cppname }}({{ interface.cppname }}Context* context)
+    : mContext(context) {}
+
+{{ interface.cppname }}::{{ interface.cppname }}() = default;
+
+{{ interface.cppname }}::~{{ interface.cppname }}() = default;
+
+auto {{ interface.cppname }}::get_object_id() const noexcept -> ObjectId {
+  return mContext->get_object_id();
+}
+
+{% for request in interface.requests %}
+{% if request.return_type %}auto{% else %}void{% endif %}
+{{ interface.cppname }}::{{ request.name }}({% for arg in request.args %}{% if arg.__tail %}, {% endif %}{{arg.type}} {{arg.name}}{% endfor %})
+const {% if request.return_type %}-> Observable<{{ request.return_type }}>{% endif %} {
+  {% if request.return_type %}auto newObjectId = mContext->get_connection().get_next_object_id();
+  auto syncInit = [=, context = this->mContext] {
+    context->get_connection().send_message(context->get_object_id(), OpCode{ {{ request.num }} }, newObjectId{% for arg in request.args %}, {{ arg.name }}{% endfor %});
+  };
+  return {{ request.return_type }}::make(newObjectId, mContext->get_connection(), std::move(syncInit));
+  {% else %}mContext->get_connection().send_message(mContext->get_object_id(), OpCode{ {{ request.num }} }{% for arg in request.args %}, {{ arg.name }}{% endfor %});
+  {% endif %}
+}
+{% endfor %}
+{% if interface.events %}
+auto {{ interface.cppname }}::events() const -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> {
+  return as_observable(mContext->mEventQueue);
+}
+{% endif %}
 {% endfor %}
 
 } // namespace ms

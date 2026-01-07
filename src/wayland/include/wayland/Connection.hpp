@@ -53,11 +53,9 @@ public:
 
   auto read_next_file_descriptor() -> FileDescriptorHandle;
 
-  template <class InterfaceType> auto create_interface() -> InterfaceType;
-
   template <class InterfaceType>
-    requires std::derived_from<InterfaceType, ProxyInterface>
-  auto from_object_id(ObjectId objectId) -> InterfaceType*;
+    requires requires { typename InterfaceType::context_type; }
+  auto from_object_id(ObjectId objectId) -> InterfaceType;
 
   auto get_next_object_id() -> ObjectId;
 
@@ -77,7 +75,10 @@ private:
   auto message_length(std::uint32_t) -> std::uint16_t;
   auto message_length(ObjectId) -> std::uint16_t;
   auto message_length(FileDescriptorHandle) -> std::uint16_t;
-  auto message_length(const ProxyInterface*) -> std::uint16_t;
+
+  template <class InterfaceType>
+    requires requires { typename InterfaceType::context_type; }
+  auto message_length(InterfaceType) -> std::uint16_t;
 
   auto put_arg_to_message(std::span<char> buffer, const std::string& arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, std::span<const char> arg) -> std::span<char>;
@@ -85,7 +86,10 @@ private:
   auto put_arg_to_message(std::span<char> buffer, std::uint32_t arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, ObjectId arg) -> std::span<char>;
   auto put_arg_to_message(std::span<char> buffer, FileDescriptorHandle arg) -> std::span<char>;
-  auto put_arg_to_message(std::span<char> buffer, const ProxyInterface*) -> std::span<char>;
+
+  template <class InterfaceType>
+    requires requires { typename InterfaceType::context_type; }
+  auto put_arg_to_message(std::span<char> buffer, InterfaceType arg) -> std::span<char>;
 
   auto extract_arg_from_message(std::span<const char> buffer, std::string& arg)
       -> std::span<const char>;
@@ -101,8 +105,8 @@ private:
       -> std::span<const char>;
 
   template <class InterfaceType>
-    requires std::derived_from<InterfaceType, ProxyInterface>
-  auto extract_arg_from_message(std::span<const char> buffer, const InterfaceType*& arg)
+    requires requires { typename InterfaceType::context_type; }
+  auto extract_arg_from_message(std::span<const char> buffer, InterfaceType arg)
       -> std::span<const char>;
 
   Connection* mConnection;
@@ -149,11 +153,6 @@ public:
   std::queue<FileDescriptorHandle> mReceivedFileDescriptors;
 };
 
-template <class InterfaceType> auto ConnectionHandle::create_interface() -> InterfaceType {
-  ObjectId objectId = static_cast<ObjectId>(mConnection->mNextObjectId.fetch_add(1));
-  return InterfaceType{objectId, *this};
-}
-
 template <class... Args>
 auto ConnectionHandle::read_message(std::span<const char> buffer, Args&... args) -> std::size_t {
   std::span<const char> remainingBuffer = buffer.subspan(2 * sizeof(std::uint32_t)); // skip header
@@ -162,20 +161,24 @@ auto ConnectionHandle::read_message(std::span<const char> buffer, Args&... args)
 }
 
 template <class InterfaceType>
-  requires std::derived_from<InterfaceType, ProxyInterface>
-auto ConnectionHandle::from_object_id(ObjectId objectId) -> InterfaceType* {
+  requires requires { typename InterfaceType::context_type; }
+auto ConnectionHandle::from_object_id(ObjectId objectId) -> InterfaceType {
   auto it = mConnection->mProxies.find(objectId);
   if (it != mConnection->mProxies.end()) {
-    return static_cast<InterfaceType*>(it->second);
+    auto* context = dynamic_cast<typename InterfaceType::context_type*>(it->second);
+    if (context) {
+      return InterfaceType{context};
+    } else {
+      throw std::runtime_error("ProxyInterface is not of the requested InterfaceType");
+    }
   } else {
-    return nullptr;
+    throw std::runtime_error("No proxy registered for given ObjectId");
   }
 }
 
 template <class InterfaceType>
-  requires std::derived_from<InterfaceType, ProxyInterface>
-auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer,
-                                                const InterfaceType*& arg)
+  requires requires { typename InterfaceType::context_type; }
+auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, InterfaceType arg)
     -> std::span<const char> {
   ObjectId objectId;
   std::span<const char> remainingBuffer = extract_arg_from_message(buffer, objectId);
@@ -202,6 +205,20 @@ auto ConnectionHandle::send_message(ObjectId objectId, OpCode opCode, const Args
   std::optional<FileDescriptorHandle> fd;
   (set_fd(fd, args), ...);
   send_message(std::move(storage), std::move(fd));
+}
+
+template <class InterfaceType>
+  requires requires { typename InterfaceType::context_type; }
+auto ConnectionHandle::message_length(InterfaceType) -> std::uint16_t {
+  return message_length(ObjectId{});
+}
+
+template <class InterfaceType>
+  requires requires { typename InterfaceType::context_type; }
+auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, InterfaceType arg)
+    -> std::span<char> {
+  ObjectId objectId = arg.get_object_id();
+  return put_arg_to_message(buffer, objectId);
 }
 
 } // namespace ms::wayland

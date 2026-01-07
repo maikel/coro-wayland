@@ -21,15 +21,26 @@
 
 namespace ms::wayland {
 
+{% for interface in interfaces %}struct {{ interface.cppname }}Context;
+{% endfor %}
+
 {% for interface in interfaces %}class {{interface.cppname}};
 {% endfor %}
 
 {% for interface in interfaces %}
-class {{ interface.cppname }} : public ProxyInterface {
+class {{ interface.cppname }} {
 public:
+  using context_type = {{ interface.cppname }}Context;
+
   static constexpr auto interface_name() noexcept -> std::string_view {
     return "{{ interface.name }}";
   }
+
+  {{ interface.cppname }}();
+
+  ~{{ interface.cppname }}();
+
+  static auto make(ObjectId objectId, ConnectionHandle connection, std::function<void()> syncInit = nullptr) -> Observable<{{ interface.cppname }}>;
 
 {% for entry in interface.enums %}
 {% if entry.description %}/** @brief {{ entry.description }} */{% endif %}
@@ -38,34 +49,40 @@ public:
   };
 {% endfor %}
 
-  {{ interface.cppname }}(ObjectId objectId, ConnectionHandle connection);
-  ~{{ interface.cppname }}();
-
-{% for event in interface.events %}
-{% if event.description %}/** @brief {{ event.description }} */
-{% endif %}struct {{ event.cppname }} {
-  static constexpr std::size_t index = {{ event.num }};
-  {% for arg in event.args %}{% if arg.description %}/** @brief {{ arg.description }} */
-  {% endif %}{{ arg.type }} {{ arg.name }};
-  {% endfor %}
-};
+{% for event in interface.events %}struct {{ event.cppname }};
 {% endfor %}
 {% if interface.events %}
-  auto events() -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>>;
+  auto events() const -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>>;
 {% endif %}
 
 {% for request in interface.requests %}
   {% if request.description %}/** @brief {{ request.description }} */{% endif %}
   {% if request.return_type %}auto{% else %}void{% endif %}
   {{ request.name }}({% for arg in request.args %}{% if arg.__tail %}, {% endif %}{{arg.type}} {{arg.name}}{% endfor %})
-  {% if request.return_type %}-> {{ request.return_type }}{% endif %};
+  const{% if request.return_type %}-> Observable<{{ request.return_type }}>{% endif %};
 {% endfor %}
+
+  auto get_object_id() const noexcept -> ObjectId;
+
 private:
-  auto handle_message(std::span<const char> message, OpCode opCode) -> IoTask<void> override;
-  auto close() -> Task<void>;
-  {% if interface.events %}
-  AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
+  friend class ConnectionHandle;
+
+  explicit {{ interface.cppname }}({{ interface.cppname }}Context* context);
+
+  {{ interface.cppname }}Context* mContext;
 };
+{% endfor %}
+
+{% for interface in interfaces %}
+{% for event in interface.events %}
+{% if event.description %}/** @brief {{ event.description }} */
+{% endif %}struct {{ interface.cppname }}::{{ event.cppname }} {
+  static constexpr std::size_t index = {{ event.num }};
+  {% for arg in event.args %}{% if arg.description %}/** @brief {{ arg.description }} */
+  {% endif %}{{ arg.type }} {{ arg.name }};
+  {% endfor %}
+};
+{% endfor %}
 {% endfor %}
 
 } // namespace ms

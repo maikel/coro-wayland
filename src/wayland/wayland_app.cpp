@@ -3,6 +3,7 @@
 
 #include "AsyncUnorderedMap.hpp"
 #include "Logging.hpp"
+#include "observables/use_resource.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
 #include "sync_wait.hpp"
@@ -25,8 +26,9 @@ int main() {
   ms::wayland::Connection connection;
   ms::sync_wait(connection.run().subscribe([](auto handle) noexcept -> ms::IoTask<void> {
     ms::wayland::ConnectionHandle connHandle = co_await std::move(handle);
-    ms::wayland::Display display{ms::wayland::ObjectId::Display, connHandle};
-    ms::wayland::Registry registry = display.get_registry();
+    ms::wayland::Display display = co_await ms::use_resource(
+        ms::wayland::Display::make(ms::wayland::ObjectId::Display, connHandle));
+    ms::wayland::Registry registry = co_await ms::use_resource(display.get_registry());
     ms::AsyncUnorderedMap<std::string, std::uint32_t> nameFromInterface{connHandle.get_scheduler()};
     auto handleEvents =
         registry.events().subscribe([&](auto eventTask) noexcept -> ms::IoTask<void> {

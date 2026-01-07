@@ -241,24 +241,30 @@ private:
                additionalBytesRead, bytesRead);
       }
       std::span<const char> message(buffer, messageLength);
+      log_message("S->C", message, 4);
       auto proxyIt = connection->mProxies.find(static_cast<ObjectId>(objectId));
       if (proxyIt != connection->mProxies.end() && proxyIt->second) {
         ProxyInterface* proxy = proxyIt->second;
         Log::d("Dispatching message to proxy for object ID {}", objectId);
-        log_message("S->C", message, 4);
-        co_await proxy->handle_message(message, OpCode{opCode});
-        std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
-        bytesRead -= messageLength;
-        if (bytesRead < kMinMessageSize) {
-          std::size_t additionalBytesRead = co_await recv_at_least(
-              connection, kMinMessageSize - bytesRead,
-              std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
-          bytesRead += additionalBytesRead;
-          Log::d("Received additional {} bytes and a total of {} bytes from Wayland socket",
-                 additionalBytesRead, bytesRead);
+        try {
+          co_await proxy->handle_message(message, OpCode{opCode});
+        } catch (std::exception& e) {
+          Log::e("Exception while handling message for object ID {}: {}", objectId, e.what());
+        } catch (...) {
+          Log::e("Unknown exception while handling message for object ID {}", objectId);
         }
       } else {
         Log::d("No proxy registered for object ID {}, ignoring message", objectId);
+      }
+      std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
+      bytesRead -= messageLength;
+      if (bytesRead < kMinMessageSize) {
+        std::size_t additionalBytesRead =
+            co_await recv_at_least(connection, kMinMessageSize - bytesRead,
+                                   std::span<char>(buffer + bytesRead, sizeof(buffer) - bytesRead));
+        bytesRead += additionalBytesRead;
+        Log::d("Received additional {} bytes and a total of {} bytes from Wayland socket",
+               additionalBytesRead, bytesRead);
       }
     }
   }
@@ -383,10 +389,6 @@ auto ConnectionHandle::message_length(ObjectId) -> std::uint16_t { return sizeof
 
 auto ConnectionHandle::message_length(FileDescriptorHandle) -> std::uint16_t { return 0; }
 
-auto ConnectionHandle::message_length(const ProxyInterface*) -> std::uint16_t {
-  return sizeof(std::uint32_t);
-}
-
 auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const std::string& arg)
     -> std::span<char> {
   std::span<const char> strContent(arg.data(), arg.size() + 1); // include null terminator
@@ -443,12 +445,6 @@ auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, ObjectId arg) 
 auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, FileDescriptorHandle)
     -> std::span<char> {
   return buffer;
-}
-
-auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, const ProxyInterface* proxy)
-    -> std::span<char> {
-  ObjectId objectId = proxy->get_object_id();
-  return put_arg_to_message(buffer, objectId);
 }
 
 auto ConnectionHandle::get_next_object_id() -> ObjectId {

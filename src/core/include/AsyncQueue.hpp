@@ -19,11 +19,11 @@ template <class Tp> class AsyncQueue : ImmovableBase {
 public:
   explicit AsyncQueue(IoScheduler scheduler) noexcept;
 
-  auto push(const Tp& value) -> Task<void>;
+  template <class... Args>
+    requires std::constructible_from<Tp, Args...>
+  auto push(Args&&... args);
 
-  auto push(Tp&& value) -> Task<void>;
-
-  auto pop() -> Task<Tp>;
+  auto pop();
 
   auto close() noexcept -> Task<void>;
 
@@ -61,74 +61,73 @@ template <class Tp> auto as_observable(AsyncQueue<Tp>& queue) noexcept -> AsyncQ
 template <class Tp>
 AsyncQueue<Tp>::AsyncQueue(IoScheduler scheduler) noexcept : mScheduler(std::move(scheduler)){};
 
-template <class Tp> auto AsyncQueue<Tp>::push(const Tp& value) -> Task<void> {
-  co_await mScheduler.schedule();
-  mQueue.push(value);
-  if (!mWaiters.empty()) {
-    auto waiter = mWaiters.front();
-    mWaiters.erase(mWaiters.begin());
-    waiter.resume();
-  }
+template <class Tp>
+template <class... Args>
+  requires std::constructible_from<Tp, Args...>
+auto AsyncQueue<Tp>::push(Args&&... args) {
+  return mScope.nest([](AsyncQueue* queue, Args... args) -> Task<void> {
+    co_await queue->mScheduler.schedule();
+    queue->mQueue.push(Tp{std::move(args)...});
+    if (!queue->mWaiters.empty()) {
+      auto waiter = queue->mWaiters.front();
+      queue->mWaiters.erase(queue->mWaiters.begin());
+      waiter.resume();
+    }
+  }(this, std::forward<Args>(args)...));
 }
 
-template <class Tp> auto AsyncQueue<Tp>::push(Tp&& value) -> Task<void> {
-  co_await mScheduler.schedule();
-  mQueue.push(std::move(value));
-  if (!mWaiters.empty()) {
-    auto waiter = mWaiters.front();
-    mWaiters.erase(mWaiters.begin());
-    waiter.resume();
-  }
-}
+template <class Tp> auto AsyncQueue<Tp>::pop() {
+  return mScope.nest([](AsyncQueue* queue) -> Task<Tp> {
+    co_await queue->mScheduler.schedule();
+    struct Awaiter : ImmovableBase {
+      struct OnStopRequested {
+        void operator()() noexcept try {
+          mAwaiter->mQueue->mScope.spawn(
+              [](AsyncQueue* queue,
+                 std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) -> Task<void> {
+                co_await queue->mScheduler.schedule();
+                auto iter = std::find(queue->mWaiters.begin(), queue->mWaiters.end(), handle);
+                if (iter != queue->mWaiters.end()) {
+                  queue->mWaiters.erase(iter);
+                }
+                handle.promise().unhandled_stopped();
+              }(mAwaiter->mQueue, mAwaiter->mHandle));
+        } catch (...) {
+          // Swallow exceptions here
+        }
+        Awaiter* mAwaiter;
+      };
 
-template <class Tp> auto AsyncQueue<Tp>::pop() -> Task<Tp> {
-  co_await mScheduler.schedule();
-  struct Awaiter : ImmovableBase {
-    struct OnStopRequested {
-      void operator()() noexcept try {
-        mAwaiter->mQueue->mScope.spawn(
-            [](AsyncQueue* queue,
-               std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) -> Task<void> {
-              co_await queue->mScheduler.schedule();
-              auto iter = std::find(queue->mWaiters.begin(), queue->mWaiters.end(), handle);
-              if (iter != queue->mWaiters.end()) {
-                queue->mWaiters.erase(iter);
-              }
-              handle.promise().unhandled_stopped();
-            }(mAwaiter->mQueue, mAwaiter->mHandle));
-      } catch (...) {
-        // Swallow exceptions here
+      Awaiter(AsyncQueue* queue) noexcept : mQueue(queue) {}
+
+      AsyncQueue* mQueue;
+      std::coroutine_handle<TaskPromise<Tp, TaskTraits>> mHandle;
+      std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
+      bool await_ready() const noexcept { return false; }
+      auto await_suspend(std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) noexcept
+          -> std::coroutine_handle<> {
+        if (mQueue->mQueue.empty()) {
+          mHandle = handle;
+          mQueue->mWaiters.push_back(handle);
+          std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
+          mStopCallback.emplace(stopToken, OnStopRequested{this});
+          return std::noop_coroutine();
+        } else {
+          return handle;
+        }
       }
-      Awaiter* mAwaiter;
+      Tp await_resume() {
+        mStopCallback.reset();
+        assert(!mQueue->mQueue.empty());
+        Tp value = std::move(mQueue->mQueue.front());
+        mQueue->mQueue.pop();
+        return value;
+      }
     };
-
-    Awaiter(AsyncQueue* queue) noexcept : mQueue(queue) {}
-
-    AsyncQueue* mQueue;
-    std::coroutine_handle<TaskPromise<Tp, TaskTraits>> mHandle;
-    std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
-    bool await_ready() const noexcept { return false; }
-    auto await_suspend(std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) noexcept
-        -> std::coroutine_handle<> {
-      if (mQueue->mQueue.empty()) {
-        mHandle = handle;
-        mQueue->mWaiters.push_back(handle);
-        std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
-        mStopCallback.emplace(stopToken, OnStopRequested{this});
-        return std::noop_coroutine();
-      } else {
-        return handle;
-      }
-    }
-    Tp await_resume() {
-      mStopCallback.reset();
-      assert(!mQueue->mQueue.empty());
-      Tp value = std::move(mQueue->mQueue.front());
-      mQueue->mQueue.pop();
-      return value;
-    }
-  };
-  co_return co_await Awaiter{this};
+    co_return co_await Awaiter{queue};
+  }(this));
 }
+
+template <class Tp> auto AsyncQueue<Tp>::close() noexcept -> Task<void> { co_await mScope.close(); }
 
 } // namespace ms

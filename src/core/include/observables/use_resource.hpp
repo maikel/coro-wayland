@@ -26,7 +26,7 @@ template <class ValueT, class AwaiterPromise> struct UseResourceTask {
 };
 
 template <class ValueT, class AwaiterPromise>
-class UseResourceTask<ValueT, AwaiterPromise>::promise_type {
+class UseResourceTask<ValueT, AwaiterPromise>::promise_type : public ConnectablePromise {
 public:
   template <class Sender>
   explicit promise_type(std::shared_ptr<UseResourceSharedState<ValueT, AwaiterPromise>> sharedState,

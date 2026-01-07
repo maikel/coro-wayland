@@ -137,7 +137,7 @@ auto make_subcontext(const XmlTag& tag) -> std::map<std::string, JinjaContext> {
       } else if (type != childObj.end() && interface != childObj.end() &&
                  type->second.asString() == "object") {
         childObj.erase(type);
-        childObj.emplace("type", "const " + to_camel_case(interface->second.asString()) + "*");
+        childObj.emplace("type", to_camel_case(interface->second.asString()));
       } else if (type != childObj.end() && interface == childObj.end() &&
                  type->second.asString() == "object") {
         childObj.erase(type);
