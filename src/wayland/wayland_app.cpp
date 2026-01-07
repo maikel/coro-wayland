@@ -39,10 +39,10 @@ auto allocate_memory_file(std::size_t size) -> wayland::FileDescriptorHandle {
   return fd;
 }
 
-auto fill_shm_buffer(std::mdspan<uint32_t, std::dextents<std::size_t, 2>> buffer) -> void {
+auto fill_shm_buffer(std::mdspan<uint32_t, std::dextents<std::size_t, 2>> buffer, std::uint32_t color) -> void {
   for (std::size_t y = 0; y < buffer.extent(1); ++y) {
     for (std::size_t x = 0; x < buffer.extent(0); ++x) {
-      buffer[x, y] = 0xff0000ff; // ARGB: opaque blue
+      buffer[x, y] = color;
     }
   }
 }
@@ -62,10 +62,9 @@ struct ApplicationState {
     mShmBuffer1 = std::mdspan<uint32_t, std::dextents<std::size_t, 2>>{
         static_cast<uint32_t*>(mapped), std::dextents<std::size_t, 2>{width, height}};
     mShmBuffer2 = std::mdspan<uint32_t, std::dextents<std::size_t, 2>>{
-        static_cast<uint32_t*>(mapped) + (stride * height) / 4,
-        std::dextents<std::size_t, 2>{width, height}};
-    fill_shm_buffer(mShmBuffer1);
-    fill_shm_buffer(mShmBuffer2);
+        static_cast<uint32_t*>(mapped) + mShmBuffer1.size(), std::dextents<std::size_t, 2>{width, height}};
+    fill_shm_buffer(mShmBuffer1, 0xff0000ff);
+    fill_shm_buffer(mShmBuffer2, 0xff00ff00);
   }
 
   wayland::ConnectionHandle connectionHandle;
@@ -103,6 +102,8 @@ auto create_window(
       app.shm.create_pool(app.shmFd, static_cast<std::int32_t>(app.shmData.size())));
   app.buffer1 = co_await use_resource(app.shmPool.create_buffer(
       0, 1920, 1080, 1920 * 4, static_cast<uint32_t>(wayland::Shm::Format::xrgb8888)));
+  app.buffer2 = co_await use_resource(app.shmPool.create_buffer(
+      1920 * 1080 * 4, 1920, 1080, 1920 * 4, static_cast<uint32_t>(wayland::Shm::Format::xrgb8888)));
 
   wayland::XdgWmBase xdgWmBase = co_await use_resource(
       wayland::XdgWmBase::make(app.connectionHandle.get_next_object_id(), app.connectionHandle));
@@ -110,8 +111,6 @@ auto create_window(
   wayland::XdgSurface xdgSurface = co_await use_resource(xdgWmBase.get_xdg_surface(app.surface));
   wayland::XdgToplevel xdgToplevel = co_await use_resource(xdgSurface.get_toplevel());
   AsyncScopeHandle scope = co_await use_resource(create_scope());
-  AsyncQueueHandle eventQueue =
-      co_await use_resource(AsyncQueue<wayland::XdgSurface::ConfigureEvent>::make());
 
   auto env = co_await read_env([](auto x) { return x; });
   auto handleConfigureEvents =
@@ -120,7 +119,8 @@ auto create_window(
         switch (event.index()) {
         case wayland::XdgSurface::ConfigureEvent::index: {
           const auto configureEvent = std::get<wayland::XdgSurface::ConfigureEvent>(event);
-          co_await eventQueue.push(std::move(configureEvent));
+          Log::i("Received configure event with serial {}", configureEvent.serial);
+          xdgSurface.ack_configure(configureEvent.serial);
           co_return;
         }
         }
@@ -147,9 +147,16 @@ auto create_window(
   app.surface.damage(0, 0, 1920, 1080);
   app.surface.commit();
 
+  int activeBuffer = 0;
+  wayland::Buffer buffers[2]{app.buffer1, app.buffer2};
   while (true) {
-    wayland::XdgSurface::ConfigureEvent event = co_await eventQueue.pop();
-    xdgSurface.ack_configure(event.serial);
+    co_await app.connectionHandle.get_scheduler().schedule_after(std::chrono::seconds(1));
+    Log::i("Swapping buffer to display color {}",
+           activeBuffer == 0 ? "green" : "blue");
+    activeBuffer = (activeBuffer + 1) % 2;
+    app.surface.attach(buffers[activeBuffer], 0, 0);
+    app.surface.damage(0, 0, 1920, 1080);
+    app.surface.commit();
   }
 }
 
