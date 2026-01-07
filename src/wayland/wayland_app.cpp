@@ -177,7 +177,7 @@ int main() {
             const auto globalEvent = std::get<wayland::Registry::GlobalEvent>(event);
             Log::i("Global added: name={}, interface={}, version={}", globalEvent.name,
                    globalEvent.interface, globalEvent.version);
-            co_await nameFromInterface.emplace(std::string{globalEvent.interface}, globalEvent);
+            co_await nameFromInterface.emplace(globalEvent.interface, globalEvent);
             break;
           }
           case wayland::Registry::GlobalRemoveEvent::index: {
