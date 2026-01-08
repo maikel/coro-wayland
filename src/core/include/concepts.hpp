@@ -6,8 +6,17 @@
 #include <concepts>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace ms {
+
+template <class ValueType> struct ValueOrMonostateType {
+  using type = ValueType;
+};
+
+template <> struct ValueOrMonostateType<void> {
+  using type = std::monostate;
+};
 
 template <class Fn, class... Args>
 concept callable = requires(Fn&& fn, Args&&... args) { fn(static_cast<Args &&>(args)...); };

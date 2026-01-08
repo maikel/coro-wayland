@@ -22,6 +22,9 @@ template <class Env> struct AsyncScopeTask {
   struct promise_type;
 };
 
+
+template <class Sender> class NestSender;
+
 template <class Env> struct AsyncScopeTask<Env>::promise_type : ConnectablePromise {
   AsyncScope& mScope;
   Env mEnv;
@@ -46,24 +49,37 @@ template <class Env> struct AsyncScopeTask<Env>::promise_type : ConnectablePromi
 
 class AsyncScope;
 
+
+class NestObservable {
+public:
+  explicit NestObservable(AsyncScope& scope) noexcept;
+
+  auto subscribe(std::function<auto(IoTask<void>) -> IoTask<void>> receiver) -> IoTask<void>;
+
+private:
+  AsyncScope* mScope;
+};
+
 class AsyncScopeHandle {
 public:
   explicit AsyncScopeHandle(AsyncScope& scope) noexcept : mScope(&scope) {}
 
   template <class Sender, class Env = EmptyEnv> void spawn(Sender&& sender, Env env = Env());
 
+  template <class Sender> auto nest(Sender&& sender) -> NestSender<Sender>;
+
+  auto nest() -> NestObservable;
+
 private:
   AsyncScope* mScope;
 };
+
 
 template <class AwaiterPromise> struct NestTask {
   class promise_type;
 
   std::coroutine_handle<promise_type> mHandle;
 };
-
-template <class Sender> class NestSender;
-
 class AsyncScope : ImmovableBase {
 public:
   AsyncScope() = default;
@@ -82,6 +98,8 @@ public:
   }
 
   template <class Sender> auto nest(Sender&& sender) -> NestSender<Sender>;
+
+  auto nest() -> NestObservable;
 
   struct CloseAwaitable;
 
@@ -286,6 +304,10 @@ private:
 
 template <class Sender> auto AsyncScope::nest(Sender&& sender) -> NestSender<Sender> {
   return NestSender<Sender>{std::forward<Sender>(sender), *this};
+}
+
+template <class Sender> auto AsyncScopeHandle::nest(Sender&& sender) -> NestSender<Sender> {
+  return NestSender<Sender>{std::forward<Sender>(sender), *mScope};
 }
 
 } // namespace ms

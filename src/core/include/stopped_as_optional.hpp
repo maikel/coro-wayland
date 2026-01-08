@@ -22,14 +22,6 @@ template <class AwaiterPromise> struct StoppedAsOptionalStateBase {
   std::coroutine_handle<AwaiterPromise> mContinuation;
 };
 
-template <class ValueType> struct ValueOrMonostateType {
-  using type = ValueType;
-};
-
-template <> struct ValueOrMonostateType<void> {
-  using type = std::monostate;
-};
-
 template <class AwaiterPromise, class ValueType>
 struct StoppedAsOptionalState : StoppedAsOptionalStateBase<AwaiterPromise> {
   std::optional<typename ValueOrMonostateType<ValueType>::type> result;

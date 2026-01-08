@@ -7,6 +7,8 @@
 #include "IoTask.hpp"
 #include "Observable.hpp"
 
+#include "concepts.hpp"
+
 namespace ms {
 
 template <class ValueT, class AwaiterPromise> struct UseResourceSharedState {
@@ -16,7 +18,7 @@ template <class ValueT, class AwaiterPromise> struct UseResourceSharedState {
 
   std::coroutine_handle<AwaiterPromise> mAwaiterHandle;
   std::coroutine_handle<TaskPromise<void, IoTaskTraits>> mReleaseHandle{nullptr};
-  std::optional<ValueT> mValue{};
+  std::optional<typename ValueOrMonostateType<ValueT>::type> mValue{};
   IoTaskContinuation mContinuation;
   bool mStopped{false};
 };
@@ -91,7 +93,12 @@ template <class ValueT, class AwaiterPromise> struct UseResourceAwaiter : Immova
     mSharedState = std::make_shared<UseResourceSharedState<ValueT, AwaiterPromise>>(handle);
     auto receiver = [sharedState = mSharedState](IoTask<ValueT> task) -> IoTask<void> {
       auto s = sharedState;
-      s->mValue.emplace(co_await std::move(task));
+      if constexpr (std::is_void_v<ValueT>) {
+        co_await std::move(task);
+        s->mValue.emplace();
+      } else {
+        s->mValue.emplace(co_await std::move(task));
+      }
       co_await WaitUntilRelease(s);
     };
     auto subscribeTask = std::move(mObservable).subscribe(std::move(receiver));
@@ -100,7 +107,9 @@ template <class ValueT, class AwaiterPromise> struct UseResourceAwaiter : Immova
     }(mSharedState, std::move(subscribeTask));
   }
 
-  auto await_resume() noexcept -> ValueT { return std::move(mSharedState->mValue).value(); }
+  auto await_resume() noexcept -> typename ValueOrMonostateType<ValueT>::type {
+    return std::move(mSharedState->mValue).value();
+  }
 
   Observable<ValueT> mObservable;
   std::shared_ptr<UseResourceSharedState<ValueT, AwaiterPromise>> mSharedState;
