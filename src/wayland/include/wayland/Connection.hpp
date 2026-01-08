@@ -4,6 +4,7 @@
 #pragma once
 
 #include "AsyncScope.hpp"
+#include "FileDescriptor.hpp"
 #include "Observable.hpp"
 
 #include <cstdint>
@@ -17,20 +18,6 @@
 
 namespace ms::wayland {
 
-struct FileDescriptorHandle {
-public:
-  FileDescriptorHandle() noexcept : mNativeHandle(-1) {}
-
-  explicit FileDescriptorHandle(int handle);
-
-  auto native_handle() const noexcept -> int;
-
-  friend auto operator<=>(FileDescriptorHandle, FileDescriptorHandle) = default;
-
-private:
-  int mNativeHandle;
-};
-
 enum class ObjectId : std::uint32_t {
   Display = 1,
 };
@@ -38,12 +25,20 @@ enum class ObjectId : std::uint32_t {
 enum class OpCode : std::uint16_t {};
 
 class ProxyInterface;
-class Connection;
+class ConnectionContext;
 
-class ConnectionHandle {
+class Connection {
 public:
-  explicit ConnectionHandle(Connection* connection, IoScheduler scheduler) noexcept
-      : mConnection(connection), mScheduler(scheduler) {}
+  static auto make() -> Observable<Connection>;
+
+  auto get_scheduler() const noexcept -> IoScheduler;
+  auto get_next_object_id() const noexcept -> ObjectId;
+
+private:
+  friend class ConnectionContext;
+  friend class ProxyInterface;
+
+  explicit Connection(ConnectionContext* connection) noexcept;
 
   template <class... Args>
   auto send_message(ObjectId objectId, OpCode opCode, const Args&... args) -> void;
@@ -53,18 +48,13 @@ public:
 
   auto read_next_file_descriptor() -> FileDescriptorHandle;
 
+  auto proxy_from_object_id(ObjectId objectId) -> ProxyInterface*;
+
   template <class InterfaceType>
     requires requires { typename InterfaceType::context_type; }
   auto from_object_id(ObjectId objectId) -> InterfaceType;
 
-  auto get_next_object_id() -> ObjectId;
-
   auto unregister_interface(ProxyInterface* proxy) -> void;
-
-  auto get_scheduler() const noexcept -> IoScheduler { return mScheduler; }
-
-private:
-  friend class ProxyInterface;
   auto register_interface(ProxyInterface* proxy) -> void;
 
   void send_message(std::vector<char> message, std::optional<FileDescriptorHandle> fds);
@@ -109,13 +99,12 @@ private:
   auto extract_arg_from_message(std::span<const char> buffer, InterfaceType arg)
       -> std::span<const char>;
 
-  Connection* mConnection;
-  IoScheduler mScheduler;
+  ConnectionContext* mConnection;
 };
 
 class ProxyInterface : ImmovableBase {
 public:
-  explicit ProxyInterface(ObjectId objectId, ConnectionHandle handle) noexcept
+  explicit ProxyInterface(ObjectId objectId, Connection handle) noexcept
       : mObjectId(objectId), mHandle(handle) {
     mHandle.register_interface(this);
   }
@@ -126,35 +115,20 @@ public:
 
   auto get_object_id() const noexcept -> ObjectId { return mObjectId; }
 
-  auto get_connection() noexcept -> ConnectionHandle { return mHandle; }
+  auto get_connection() noexcept -> Connection { return mHandle; }
+
+  template <class... Args> auto send_message(OpCode opCode, const Args&... args) -> void;
+
+  template <class... Args>
+  auto read_message(std::span<const char> buffer, Args&... args) -> std::size_t;
 
 private:
   ObjectId mObjectId;
-  ConnectionHandle mHandle;
-};
-
-class Connection {
-public:
-  Connection();
-  ~Connection();
-
-  auto get_fd() const noexcept -> int { return mFd; }
-
-  auto close() -> Task<void>;
-
-  auto run() -> Observable<ConnectionHandle>;
-
-  friend class ConnectionHandle;
-
-  AsyncScope mScope;
-  std::atomic<std::uint32_t> mNextObjectId{2};
-  int mFd;
-  std::unordered_map<ObjectId, ProxyInterface*> mProxies;
-  std::queue<FileDescriptorHandle> mReceivedFileDescriptors;
+  Connection mHandle;
 };
 
 template <class... Args>
-auto ConnectionHandle::read_message(std::span<const char> buffer, Args&... args) -> std::size_t {
+auto Connection::read_message(std::span<const char> buffer, Args&... args) -> std::size_t {
   std::span<const char> remainingBuffer = buffer.subspan(2 * sizeof(std::uint32_t)); // skip header
   ((remainingBuffer = extract_arg_from_message(remainingBuffer, args)), ...);
   return buffer.size() - remainingBuffer.size();
@@ -162,10 +136,10 @@ auto ConnectionHandle::read_message(std::span<const char> buffer, Args&... args)
 
 template <class InterfaceType>
   requires requires { typename InterfaceType::context_type; }
-auto ConnectionHandle::from_object_id(ObjectId objectId) -> InterfaceType {
-  auto it = mConnection->mProxies.find(objectId);
-  if (it != mConnection->mProxies.end()) {
-    auto* context = dynamic_cast<typename InterfaceType::context_type*>(it->second);
+auto Connection::from_object_id(ObjectId objectId) -> InterfaceType {
+  ProxyInterface* proxy = this->proxy_from_object_id(objectId);
+  if (proxy) {
+    auto* context = dynamic_cast<typename InterfaceType::context_type*>(proxy);
     if (context) {
       return InterfaceType{context};
     } else {
@@ -178,7 +152,7 @@ auto ConnectionHandle::from_object_id(ObjectId objectId) -> InterfaceType {
 
 template <class InterfaceType>
   requires requires { typename InterfaceType::context_type; }
-auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, InterfaceType arg)
+auto Connection::extract_arg_from_message(std::span<const char> buffer, InterfaceType arg)
     -> std::span<const char> {
   ObjectId objectId;
   std::span<const char> remainingBuffer = extract_arg_from_message(buffer, objectId);
@@ -187,7 +161,7 @@ auto ConnectionHandle::extract_arg_from_message(std::span<const char> buffer, In
 }
 
 template <class... Args>
-auto ConnectionHandle::send_message(ObjectId objectId, OpCode opCode, const Args&... args) -> void {
+auto Connection::send_message(ObjectId objectId, OpCode opCode, const Args&... args) -> void {
   std::uint16_t messageLength = 2 * sizeof(std::uint32_t); // header size
   ((messageLength += message_length(args)), ...);
   std::vector<char> storage(messageLength);
@@ -209,16 +183,25 @@ auto ConnectionHandle::send_message(ObjectId objectId, OpCode opCode, const Args
 
 template <class InterfaceType>
   requires requires { typename InterfaceType::context_type; }
-auto ConnectionHandle::message_length(InterfaceType) -> std::uint16_t {
+auto Connection::message_length(InterfaceType) -> std::uint16_t {
   return message_length(ObjectId{});
 }
 
 template <class InterfaceType>
   requires requires { typename InterfaceType::context_type; }
-auto ConnectionHandle::put_arg_to_message(std::span<char> buffer, InterfaceType arg)
-    -> std::span<char> {
+auto Connection::put_arg_to_message(std::span<char> buffer, InterfaceType arg) -> std::span<char> {
   ObjectId objectId = arg.get_object_id();
   return put_arg_to_message(buffer, objectId);
+}
+
+template <class... Args>
+auto ProxyInterface::send_message(OpCode opCode, const Args&... args) -> void {
+  mHandle.send_message(mObjectId, opCode, args...);
+}
+
+template <class... Args>
+auto ProxyInterface::read_message(std::span<const char> buffer, Args&... args) -> std::size_t {
+  return mHandle.read_message(buffer, args...);
 }
 
 } // namespace ms::wayland
