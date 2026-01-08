@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <coroutine>
 #include <stop_token>
 
 namespace ms {
@@ -42,5 +43,25 @@ struct get_scheduler_t {
   }
 };
 inline constexpr get_scheduler_t get_scheduler{};
+
+template <class AwaiterPromise> struct GetThisHandle {
+  static auto await_ready() noexcept -> std::true_type { return {}; }
+
+  auto await_suspend(std::coroutine_handle<AwaiterPromise>) noexcept -> void {}
+
+  auto await_resume() noexcept -> std::coroutine_handle<AwaiterPromise> { return mHandle; }
+
+  std::coroutine_handle<AwaiterPromise> mHandle;
+};
+
+struct GetThisHandleSender {
+  template <class AwaiterPromise>
+  auto connect(AwaiterPromise& promise) const noexcept -> GetThisHandle<AwaiterPromise> {
+    return GetThisHandle<AwaiterPromise>{
+        std::coroutine_handle<AwaiterPromise>::from_promise(promise)};
+  }
+};
+
+inline auto get_this_handle() noexcept -> GetThisHandleSender { return GetThisHandleSender{}; }
 
 } // namespace ms

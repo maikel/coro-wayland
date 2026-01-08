@@ -22,7 +22,6 @@ template <class Env> struct AsyncScopeTask {
   struct promise_type;
 };
 
-
 template <class Sender> class NestSender;
 
 template <class Env> struct AsyncScopeTask<Env>::promise_type : ConnectablePromise {
@@ -49,12 +48,11 @@ template <class Env> struct AsyncScopeTask<Env>::promise_type : ConnectablePromi
 
 class AsyncScope;
 
-
 class NestObservable {
 public:
   explicit NestObservable(AsyncScope& scope) noexcept;
 
-  auto subscribe(std::function<auto(IoTask<void>) -> IoTask<void>> receiver) -> IoTask<void>;
+  auto subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver) -> IoTask<void>;
 
 private:
   AsyncScope* mScope;
@@ -73,7 +71,6 @@ public:
 private:
   AsyncScope* mScope;
 };
-
 
 template <class AwaiterPromise> struct NestTask {
   class promise_type;

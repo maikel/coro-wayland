@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "AsyncScope.hpp"
-#include "just_stopped.hpp"
 #include "coro_just.hpp"
+#include "just_stopped.hpp"
 #include "stopped_as_optional.hpp"
 
 namespace ms {
@@ -51,22 +51,18 @@ auto create_scope() -> Observable<AsyncScopeHandle> { return AsyncScopeObservabl
 NestObservable::NestObservable(AsyncScope& scope) noexcept : mScope(&scope) {}
 
 static auto nest_subscribe(AsyncScope& scope,
-                           std::function<auto(IoTask<void>) -> IoTask<void>> receiver)
+                           std::function<auto(IoTask<void>)->IoTask<void>> receiver)
     -> IoTask<void> {
   co_await scope.nest(receiver(coro_just_void()));
 }
 
-auto NestObservable::subscribe(
-    std::function<auto(IoTask<void>) -> IoTask<void>> receiver) -> IoTask<void> {
+auto NestObservable::subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver)
+    -> IoTask<void> {
   return nest_subscribe(*mScope, std::move(receiver));
 }
 
-auto AsyncScope::nest() -> NestObservable {
-  return NestObservable{*this};
-}
+auto AsyncScope::nest() -> NestObservable { return NestObservable{*this}; }
 
-auto AsyncScopeHandle::nest() -> NestObservable {
-  return NestObservable{*mScope};
-}
+auto AsyncScopeHandle::nest() -> NestObservable { return NestObservable{*mScope}; }
 
 } // namespace ms

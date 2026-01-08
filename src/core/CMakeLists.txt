@@ -3,6 +3,7 @@ add_library(MusicStreamer_Core
   FileDescriptor.cpp
   IoContext.cpp
   IoTask.cpp
+  Strand.cpp
   Task.cpp
   write_env.cpp)
 target_include_directories(MusicStreamer_Core PUBLIC include)

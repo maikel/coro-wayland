@@ -7,13 +7,10 @@
 
 namespace ms {
 
-template <class ValueT>
-auto coro_just(ValueT value) -> IoTask<ValueT> {
+template <class ValueT> auto coro_just(ValueT value) -> IoTask<ValueT> {
   co_return std::move(value);
 }
 
-inline auto coro_just_void() -> IoTask<void> {
-  co_return;
-}
+inline auto coro_just_void() -> IoTask<void> { co_return; }
 
 } // namespace ms
