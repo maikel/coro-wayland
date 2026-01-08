@@ -48,6 +48,10 @@ struct AsyncScopeObservable {
 
 auto create_scope() -> Observable<AsyncScopeHandle> { return AsyncScopeObservable{}; }
 
+auto AsyncScope::make() -> Observable<AsyncScopeHandle> {
+  return create_scope();
+}
+
 NestObservable::NestObservable(AsyncScope& scope) noexcept : mScope(&scope) {}
 
 static auto nest_subscribe(AsyncScope& scope,

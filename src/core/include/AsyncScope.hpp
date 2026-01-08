@@ -81,6 +81,8 @@ class AsyncScope : ImmovableBase {
 public:
   AsyncScope() = default;
 
+  static auto make() -> Observable<AsyncScopeHandle>;
+
   template <class Sender, class Env = EmptyEnv> void spawn(Sender&& sender, Env env = Env()) {
     std::ptrdiff_t expected = 1;
     while (!mActiveTasks.compare_exchange_weak(expected, expected + 0b10, std::memory_order_acq_rel,

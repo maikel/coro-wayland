@@ -12,8 +12,13 @@
 
 namespace ms {
 
+  template <class KeyT, class ValueT>
+class AsyncUnorderedMapHandle;
+
 template <class KeyT, class ValueT> class AsyncUnorderedMap : ImmovableBase {
 public:
+  static auto make() -> Observable<AsyncUnorderedMapHandle<KeyT, ValueT>>;
+
   auto emplace(KeyT key, ValueT value) {
     return mScope.nest([](AsyncUnorderedMap* self, KeyT key, ValueT value) -> Task<bool> {
       co_await self->mScheduler.schedule();
@@ -144,6 +149,12 @@ auto make_async_unordered_map() -> Observable<AsyncUnorderedMapHandle<KeyT, Valu
     }
   };
   return Observable<AsyncUnorderedMapHandle<KeyT, ValueT>>{AsyncUnorderedMapObservable{}};
+}
+
+template <class KeyT, class ValueT>
+auto AsyncUnorderedMap<KeyT, ValueT>::make()
+    -> Observable<AsyncUnorderedMapHandle<KeyT, ValueT>> {
+  return make_async_unordered_map<KeyT, ValueT>();
 }
 
 } // namespace ms
