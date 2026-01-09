@@ -1,108 +1,153 @@
-# MusicStreamer
+# coro-wayland
 
-A C++ project exploring the combination of reactive programming paradigms with Wayland client library development, built on top of a custom coroutine-based async runtime.
+A modern C++23 coroutine-based async runtime with reactive Wayland client library. This project demonstrates advanced coroutine patterns, structured concurrency, and reactive programming for building efficient Wayland applications.
 
-## Project Status
+## ⚠️ Experimental Status
 
-This project is in early development. The current implementation includes foundational infrastructure for async I/O, code generation tooling, and initial Wayland protocol bindings.
+**This project is highly experimental and in active development.** The APIs are unstable and will change. It's not ready for production use or external contributions yet. I'm using this as a research platform to explore different async patterns in C++.
 
-## Components
+## What is coro-wayland?
+
+Traditional Wayland clients rely heavily on callbacks and manual state management, making complex applications difficult to reason about. coro-wayland takes a different approach:
+
+- **Coroutine-first**: Write sequential async code without callback hell
+- **Reactive events**: Wayland events as composable Observable streams
+- **Type-safe protocols**: Generated bindings ensure compile-time correctness
+- **Structured concurrency**: AsyncScope with automatic cancellation propagation
+- **Smart resource management**: `use_resource()` for async RAII patterns
+
+## Features
 
 ### Core Async Runtime
 
-Located in `src/core/`, this provides a coroutine-based asynchronous execution framework:
+A complete coroutine-based async runtime (`src/core/`) with structured concurrency:
 
-- **Task<T>**: Lazily-evaluated coroutine tasks with customizable traits for cancellation and environment propagation
-- **IoContext**: Single-threaded event loop managing immediate tasks, timers, and file descriptor polling with io_uring-style architecture
-- **IoTask**: Awaitable operations for async I/O (timers, file descriptors, immediate yields)
-- **sync_wait**: Synchronous entry point for coroutine execution
+- **Task\<T\>** / **IoTask\<T\>**: Lazily-evaluated coroutine tasks with cancellation support
+- **IoContext**: Single-threaded event loop with io_uring-style architecture
+- **AsyncScope**: Structured task spawning with automatic lifetime management
+- **AsyncQueue\<T\>**: Async producer/consumer queues with backpressure
+- **AsyncUnorderedMap\<K,V\>**: Reactive key-value storage with observable updates
+- **Observable\<T\>**: Type-erased reactive streams for event composition
+- **use_resource()**: Async RAII - resources cleaned up after last coroutine reference
+- **when_all** / **when_any**: Concurrent composition primitives
+- **sync_wait**: Bridge synchronous and asynchronous worlds
 
-The runtime supports:
-- Structured concurrency via stop_token cancellation
-- Environment-based query system for passing contextual information through coroutine chains
-- Thread-safe task enqueuing with single-threaded execution model
+### Wayland Protocol Bindings
 
-### Code Generator
+Type-safe, reactive Wayland client library (`src/wayland/`):
 
-Located in `src/code_generator/`, this implements a custom code generator for Wayland protocol definitions:
+- **Client**: High-level Wayland connection management
+- **Connection**: Low-level wire protocol handling
+- **FrameBufferPool**: Double-buffered shared memory management
+- **Generated bindings**: Type-safe protocol objects from XML definitions
+- **Reactive events**: Each Wayland object exposes `events()` returning `Observable<...>`
+- **Automatic cleanup**: Resources tied to coroutine lifetimes via `use_resource()`
 
-- **WaylandXmlParser**: XML parser specifically designed for Wayland protocol files
-- **JinjaTemplateEngine**: Jinja2-style template engine supporting:
-  - Variable substitution with nested object/array access (`{{ user.name }}`, `{{ items[0] }}`)
-  - Conditional blocks (`{% if %} ... {% else %} ... {% endif %}`)
-  - For loops (`{% for item in items %} ... {% endfor %}`)
-  - Rich error messages with line/column information and "did you mean?" suggestions
-- **code_generator**: Command-line tool that reads Wayland XML and generates C++ bindings from templates
+### Code Generation
 
-The code generator reads Wayland protocol XML files (typically `/usr/share/wayland/wayland.xml`) and produces type-safe C++ wrappers with reactive event handling.
+Custom tooling for generating C++ from Wayland protocol XML (`src/code_generator/`):
 
-### Wayland Client Library
-
-Located in `src/wayland/`, this provides generated Wayland protocol bindings:
-
-- Generated from official Wayland protocol XML using the code generator
-- Designed to integrate reactive programming with Wayland's event model
-- Each protocol object exposes an `events()` method returning an `Observable<EventTypes...>`
-- Event queuing strategy to handle the race between object construction and event subscription
-
-Current architecture uses per-object event queues that buffer incoming events until the first subscription, ensuring no events are missed while maintaining simple, synchronous object semantics.
-
-### Renderer
-
-Located in `src/renderer/`, this provides basic graphics primitives:
-
-- **Rasterizer**: Software rasterization for lines, shapes, and patterns
-- Supports line thickness, filled rectangles/circles, and anti-aliasing
-- PPM image output for testing and visualization
+- **WaylandXmlParser**: Parses official Wayland protocol XML files
+- **JinjaTemplateEngine**: Template engine with variable substitution, conditionals, loops
+- **code_generator**: CLI tool generating type-safe C++ bindings from templates
+- **Rich error messages**: Line/column information with "did you mean?" suggestions
 
 ## Building
 
-The project uses CMake with C++23 features:
+### Requirements
+
+- **Compiler**: GCC 13+, Clang 17+, or newer (C++23 support required)
+- **CMake**: 3.24 or newer
+- **Wayland**: XML files
+- **System**: Linux (Wayland is Linux-specific)
+
+### Build Instructions
 
 ```bash
+# Configure
 cmake -B build -S .
+
+# Build
+cmake --build build
+
+# Run tests
+cd build && ctest
+
+# Build with optimizations
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Run tests:
+## Project Structure
 
-```bash
-cd build && ctest
 ```
-
-## Dependencies
-
-- C++23 compiler (GCC 13+ or Clang 17+)
-- CMake 3.24+
-- Wayland development files (for protocol XML)
+coro-wayland/
+├── src/
+│   ├── core/              # Async runtime (Task, IoContext, Observable, etc.)
+│   │   ├── include/       # Public headers
+│   │   └── tests/         # Unit tests
+│   ├── wayland/           # Wayland client library
+│   │   ├── Client.cpp     # High-level Wayland client
+│   │   ├── Connection.cpp # Wire protocol implementation
+│   │   ├── FrameBufferPool.cpp  # Shared memory management
+│   │   └── include/       # Public Wayland API
+│   ├── code_generator/    # Protocol binding generator
+│   │   ├── code_generator.cpp
+│   │   ├── WaylandXmlParser.cpp
+│   │   └── JinjaTemplateEngine.cpp
+│   ├── logging/           # Logging utilities
+│   └── renderer/          # Basic software rasterizer
+├── docs/                  # Documentation
+├── CMakeLists.txt
+└── README.md
+```
 
 ## Design Philosophy
 
-This project explores several architectural ideas:
+### Coroutines Over Callbacks
 
-1. **Coroutines as first-class async primitives**: The async runtime avoids callback-heavy designs in favor of sequential-looking coroutine code with explicit control flow.
+Traditional Wayland clients use callbacks for event handling, leading to fragmented control flow. coro-wayland uses C++20 coroutines to write sequential, easy-to-understand async code.
 
-2. **Type-erased task interfaces**: The `BasicTask` implementation uses traits to customize behavior while maintaining type erasure for dynamic dispatch where needed.
+### Structured Concurrency
 
-3. **Reactive Wayland integration**: Rather than traditional callback-based Wayland clients, this library exposes protocol events as observable streams, enabling reactive composition patterns.
+The `AsyncScope` ensures spawned tasks are automatically cancelled and cleaned up when the scope exits, preventing resource leaks and dangling tasks.
 
-4. **Code generation for type safety**: Instead of hand-writing protocol bindings, the code generator ensures protocol changes automatically propagate through the codebase with compile-time safety.
+### Reactive Event Streams
 
-## Current Limitations
+Wayland protocol events are exposed as `Observable<T>` streams, enabling functional composition patterns instead of managing callbacks manually.
 
-- Wayland implementation is incomplete; only protocol binding generation is implemented
-- Connection management and wire protocol handling not yet implemented
-- Observable/AsyncQueue infrastructure referenced in generated code is not yet implemented
-- No actual audio streaming functionality (despite the repository name)
-- Limited platform support (Linux/Wayland only by design)
+### Async RAII with use_resource()
 
-## Future Work
+Resources are tied to coroutine lifetimes, ensuring cleanup happens asynchronously after the last reference goes out of scope.
 
-- Implement `AsyncQueue<T>` for event buffering with backpressure
-- Complete Wayland connection handling and wire protocol implementation
-- Add coroutine-aware observable primitives for reactive event handling
-- Extend code generator to support additional protocol features (enums, bitfields)
-- Add identifier sanitization to prevent keyword collisions in generated code
+## Current Status
+
+**Working:**
+- Core async runtime with full feature set
+- Wayland wire protocol implementation
+- Client connection management
+- Frame buffer pool with double buffering
+- Code generator for protocol bindings
+- Working demo applications
+- Comprehensive unit tests
+
+**In Progress:**
+- Additional XDG shell protocols
+- Input device handling (keyboard, mouse, touch)
+- Vulkan/OpenGL renderer integration
+- Documentation and examples
+
+## Contributing
+
+This is a personal research project exploring modern C++ async patterns. I'm not accepting contributions at this time as the project is still too experimental and the APIs are changing frequently. Feel free to watch or fork the project if you're interested in the ideas being explored here.
+
+## License
+
+MIT License - see individual source files for copyright information.
+
+## Author
+
+Maikel Nadolski <maikel.nadolski@gmail.com>
 
 ## License
 
