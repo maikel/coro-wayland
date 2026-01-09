@@ -9,7 +9,7 @@
 
 #include "concepts.hpp"
 
-namespace ms {
+namespace cw {
 
 template <class ValueT, class AwaiterPromise> struct UseResourceSharedState {
   explicit UseResourceSharedState(std::coroutine_handle<AwaiterPromise> awaiterHandle)
@@ -131,4 +131,4 @@ auto use_resource(Observable<ValueT> observable) noexcept -> UseResourceSender<V
   return UseResourceSender<ValueT>{std::move(observable)};
 }
 
-} // namespace ms
+} // namespace cw

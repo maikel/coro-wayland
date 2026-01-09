@@ -6,7 +6,7 @@
 #include <compare>
 #include <cstdint>
 
-namespace ms {
+namespace cw {
 
 struct FileDescriptor {
 public:
@@ -47,4 +47,4 @@ private:
   int mNativeHandle;
 };
 
-} // namespace ms
+} // namespace cw

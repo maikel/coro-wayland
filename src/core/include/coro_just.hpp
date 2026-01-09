@@ -5,7 +5,7 @@
 
 #include "IoTask.hpp"
 
-namespace ms {
+namespace cw {
 
 template <class ValueT> auto coro_just(ValueT value) -> IoTask<ValueT> {
   co_return std::move(value);
@@ -13,4 +13,4 @@ template <class ValueT> auto coro_just(ValueT value) -> IoTask<ValueT> {
 
 inline auto coro_just_void() -> IoTask<void> { co_return; }
 
-} // namespace ms
+} // namespace cw

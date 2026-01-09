@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 template <class ValueType> struct ValueOrMonostateType {
   using type = ValueType;
@@ -51,9 +51,9 @@ auto get_awaiter(Awaitable&& awaitable, Promise& promise) -> decltype(auto) {
 
 template <class Awaitable, class Promise>
 using awaiter_of_t =
-    decltype(::ms::get_awaiter(std::declval<Awaitable&&>(), std::declval<Promise&>()));
+    decltype(::cw::get_awaiter(std::declval<Awaitable&&>(), std::declval<Promise&>()));
 
 template <class Awaitable, class Promise>
 using await_result_t = decltype(std::declval<awaiter_of_t<Awaitable, Promise>>().await_resume());
 
-} // namespace ms
+} // namespace cw

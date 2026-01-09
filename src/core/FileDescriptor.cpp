@@ -5,7 +5,7 @@
 
 #include <unistd.h>
 
-namespace ms {
+namespace cw {
 
 FileDescriptor::FileDescriptor() noexcept : mNativeHandle(-1) {}
 
@@ -42,4 +42,4 @@ FileDescriptorHandle::FileDescriptorHandle(const FileDescriptor& fd) noexcept
 
 auto FileDescriptorHandle::native_handle() const noexcept -> int { return mNativeHandle; }
 
-} // namespace ms
+} // namespace cw

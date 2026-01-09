@@ -12,7 +12,7 @@
 #include <utility>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 template <class Query, class QueryResult, class AwaitingPromise> struct WriteEnvTask;
 
@@ -168,7 +168,7 @@ template <class Query, class QueryResult, class AwaitingPromise>
 template <class Qry>
   requires(!std::is_same_v<Qry, Query> && callable<Qry, const env_of_t<AwaitingPromise>&>)
 auto WriteEnvPromise<Query, QueryResult, AwaitingPromise>::Env::query(Qry qry) const noexcept {
-  return qry(::ms::get_env(mParent->mParentCoro.promise()));
+  return qry(::cw::get_env(mParent->mParentCoro.promise()));
 }
 
 template <class Query, class QueryResult, class AwaitingPromise>
@@ -291,4 +291,4 @@ auto write_env(ChildSender childSender, Query, QueryResult result) noexcept
   return WriteEnvSender<ChildSender, Query, QueryResult>(std::move(childSender), std::move(result));
 }
 
-} // namespace ms
+} // namespace cw

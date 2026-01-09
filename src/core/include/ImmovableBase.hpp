@@ -3,7 +3,7 @@
 
 #pragma once
 
-namespace ms {
+namespace cw {
 
 struct ImmovableBase {
   ImmovableBase() = default;
@@ -15,4 +15,4 @@ struct ImmovableBase {
   ImmovableBase& operator=(ImmovableBase&&) = delete;
 };
 
-} // namespace ms
+} // namespace cw

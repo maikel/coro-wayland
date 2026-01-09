@@ -17,7 +17,7 @@
 #include <utility>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 /// Storage for task results: value or exception.
 /// Provides uniform interface for setting and retrieving task outcomes.
@@ -194,7 +194,7 @@ inline constexpr TaskContextVtable TaskContextVtableFor = {
     /*get_env*/
     +[](const void* pointer) noexcept -> TaskEnv {
       auto* promise = static_cast<const AwaitingPromise*>(pointer);
-      return TaskEnv{::ms::get_stop_token(::ms::get_env(*promise))};
+      return TaskEnv{::cw::get_stop_token(::cw::get_env(*promise))};
     },
     /*set_stopped*/
     +[](void* pointer) noexcept {
@@ -465,4 +465,4 @@ template <class Traits> void TaskPromise<void, Traits>::return_void() noexcept {
   this->mOpState->set_value();
 }
 
-} // namespace ms
+} // namespace cw

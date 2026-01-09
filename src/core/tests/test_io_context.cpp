@@ -4,7 +4,7 @@
 #include "IoContext.hpp"
 #include "Task.hpp"
 
-auto schedule_once(ms::IoContext& context) -> ms::Task<void> {
+auto schedule_once(cw::IoContext& context) -> cw::Task<void> {
   co_await context.get_scheduler().schedule();
   context.request_stop();
 }
@@ -19,10 +19,10 @@ struct Coro {
   };
 };
 
-auto test_await_schedule_once(ms::IoContext& context) -> Coro { co_await schedule_once(context); }
+auto test_await_schedule_once(cw::IoContext& context) -> Coro { co_await schedule_once(context); }
 
 int main() {
-  ms::IoContext ioContext;
+  cw::IoContext ioContext;
 
   test_await_schedule_once(ioContext);
 

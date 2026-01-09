@@ -10,7 +10,7 @@
 #include <coroutine>
 #include <stdexcept>
 
-namespace ms {
+namespace cw {
 
 class AsyncScope;
 
@@ -223,8 +223,8 @@ public:
     parent.promise().unhandled_stopped();
   }
 
-  auto get_env() const noexcept -> ms::env_of_t<AwaiterPromise> {
-    return ms::get_env(mOperationState->mWaitingParent.promise());
+  auto get_env() const noexcept -> cw::env_of_t<AwaiterPromise> {
+    return cw::get_env(mOperationState->mWaitingParent.promise());
   }
 
 private:
@@ -244,7 +244,7 @@ struct NestAwaitable : AsyncScope::NestAwaitableBase<AwaiterPromise> {
     }
   }
 
-  using ValueT = ms::await_result_t<Sender, typename NestTask<AwaiterPromise>::promise_type>;
+  using ValueT = cw::await_result_t<Sender, typename NestTask<AwaiterPromise>::promise_type>;
 
   using ValueOrMonostate = std::conditional_t<std::is_void_v<ValueT>, std::monostate, ValueT>;
 
@@ -309,4 +309,4 @@ template <class Sender> auto AsyncScopeHandle::nest(Sender&& sender) -> NestSend
   return NestSender<Sender>{std::forward<Sender>(sender), *mScope};
 }
 
-} // namespace ms
+} // namespace cw

@@ -3,7 +3,7 @@
 
 #pragma once
 
-namespace ms {
+namespace cw {
 
 struct Point {
   int x;
@@ -15,4 +15,4 @@ struct Line {
   Point end;
 };
 
-} // namespace ms
+} // namespace cw

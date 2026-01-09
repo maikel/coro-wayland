@@ -6,7 +6,7 @@
 #include <coroutine>
 #include <stop_token>
 
-namespace ms {
+namespace cw {
 
 struct EmptyEnv {};
 
@@ -64,4 +64,4 @@ struct GetThisHandleSender {
 
 inline auto get_this_handle() noexcept -> GetThisHandleSender { return GetThisHandleSender{}; }
 
-} // namespace ms
+} // namespace cw

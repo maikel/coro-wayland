@@ -6,7 +6,7 @@
 #include "just_stopped.hpp"
 #include "stopped_as_optional.hpp"
 
-namespace ms {
+namespace cw {
 
 auto AsyncScope::CloseAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
     -> std::coroutine_handle<> {
@@ -32,13 +32,13 @@ struct AsyncScopeObservable {
     bool stopped = false;
     std::exception_ptr exception = nullptr;
     try {
-      stopped = (co_await ms::stopped_as_optional(receiver(std::move(task)))).has_value();
+      stopped = (co_await cw::stopped_as_optional(receiver(std::move(task)))).has_value();
     } catch (...) {
       exception = std::current_exception();
     }
     co_await scope.close();
     if (stopped) {
-      co_await ms::just_stopped();
+      co_await cw::just_stopped();
     }
     if (exception) {
       std::rethrow_exception(exception);
@@ -67,4 +67,4 @@ auto AsyncScope::nest() -> NestObservable { return NestObservable{*this}; }
 
 auto AsyncScopeHandle::nest() -> NestObservable { return NestObservable{*mScope}; }
 
-} // namespace ms
+} // namespace cw

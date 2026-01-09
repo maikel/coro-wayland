@@ -16,7 +16,7 @@
 #include <tuple>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 template <class AwaitingPromise, class... Senders> struct WhenAnySharedState {
 
@@ -45,10 +45,10 @@ template <class AwaitingPromise, class... Senders> struct WhenAnySharedState {
     template <class Qry>
       requires(callable<Qry, const env_of_t<AwaitingPromise>&>)
     auto query(Qry qry) const noexcept {
-      return qry(ms::get_env(mState->mHandle.promise()));
+      return qry(cw::get_env(mState->mHandle.promise()));
     }
 
-    auto query(ms::get_stop_token_t) const noexcept -> std::stop_token {
+    auto query(cw::get_stop_token_t) const noexcept -> std::stop_token {
       return mState->mStopSource.get_token();
     }
   };
@@ -229,4 +229,4 @@ auto when_any(Senders&&... senders) noexcept -> WhenAnySender<std::decay_t<Sende
   return WhenAnySender<std::decay_t<Senders>...>(std::forward<Senders>(senders)...);
 }
 
-} // namespace ms
+} // namespace cw

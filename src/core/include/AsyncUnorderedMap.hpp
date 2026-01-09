@@ -10,7 +10,7 @@
 
 #include <unordered_map>
 
-namespace ms {
+namespace cw {
 
 template <class KeyT, class ValueT> class AsyncUnorderedMapHandle;
 
@@ -80,7 +80,7 @@ public:
           if (mMap->mMap.find(mKey) == mMap->mMap.end()) {
             mHandle = handle;
             mMap->mWaiters[mKey].push_back(handle);
-            std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
+            std::stop_token stopToken = cw::get_stop_token(cw::get_env(handle.promise()));
             mStopCallback.emplace(stopToken, OnStopRequested{this});
             return std::noop_coroutine();
           } else {
@@ -137,7 +137,7 @@ auto make_async_unordered_map() -> Observable<AsyncUnorderedMapHandle<KeyT, Valu
   struct AsyncUnorderedMapObservable {
     auto subscribe(std::function<auto(IoTask<AsyncUnorderedMapHandle<KeyT, ValueT>>)->IoTask<void>>
                        subscriber) noexcept -> IoTask<void> {
-      IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+      IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
       AsyncUnorderedMap<KeyT, ValueT> map{scheduler};
       auto task = [](AsyncUnorderedMap<KeyT, ValueT>* map)
           -> IoTask<AsyncUnorderedMapHandle<KeyT, ValueT>> {
@@ -155,4 +155,4 @@ auto AsyncUnorderedMap<KeyT, ValueT>::make() -> Observable<AsyncUnorderedMapHand
   return make_async_unordered_map<KeyT, ValueT>();
 }
 
-} // namespace ms
+} // namespace cw

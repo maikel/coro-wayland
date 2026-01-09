@@ -6,7 +6,7 @@
 #include "IoContext.hpp"
 #include "Task.hpp"
 
-namespace ms {
+namespace cw {
 
 class IoTaskEnv;
 
@@ -30,12 +30,12 @@ inline constexpr IoTaskContextVtable IoTaskContextVtableFor = {
     /*get_stop_token*/
     +[](const void* pointer) noexcept -> std::stop_token {
       auto* promise = static_cast<const AwaitingPromise*>(pointer);
-      return ::ms::get_stop_token(::ms::get_env(*promise));
+      return ::cw::get_stop_token(::cw::get_env(*promise));
     },
     /*get_scheduler*/
     +[](const void* pointer) noexcept -> IoScheduler {
       auto* promise = static_cast<const AwaitingPromise*>(pointer);
-      return ::ms::get_scheduler(::ms::get_env(*promise));
+      return ::cw::get_scheduler(::cw::get_env(*promise));
     },
     /*set_stopped*/
     +[](void* pointer) noexcept {
@@ -168,4 +168,4 @@ template <class AwaitingPromise>
 IoTaskContext::IoTaskContext(std::coroutine_handle<AwaitingPromise> awaitingHandle) noexcept
     : IoTaskContextBase(awaitingHandle) {}
 
-} // namespace ms
+} // namespace cw

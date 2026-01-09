@@ -8,7 +8,7 @@
 #include <any>
 #include <concepts>
 
-namespace ms {
+namespace cw {
 
 template <class Tp> class Observable {
 public:
@@ -58,4 +58,4 @@ private:
   std::unique_ptr<Model> mValue;
 };
 
-} // namespace ms
+} // namespace cw

@@ -11,7 +11,7 @@
 #include <optional>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 template <class AwaiterPromise> struct StoppedAsOptionalStateBase {
   StoppedAsOptionalStateBase(std::coroutine_handle<AwaiterPromise> continuation)
@@ -76,8 +76,8 @@ template <class AwaiterPromise> struct StoppedAsOptionalTask : ImmovableBase {
       // Treat stopped as no result
     }
 
-    auto get_env() const noexcept -> ms::env_of_t<AwaiterPromise> {
-      return ms::get_env(mState->mContinuation.promise());
+    auto get_env() const noexcept -> cw::env_of_t<AwaiterPromise> {
+      return cw::get_env(mState->mContinuation.promise());
     }
 
     StoppedAsOptionalStateBase<AwaiterPromise>* mState;
@@ -96,7 +96,7 @@ template <class AwaiterPromise> struct StoppedAsOptionalTask : ImmovableBase {
 
 template <class AwaiterPromise, class ChildSender> struct StoppedAsOptionalAwaiter {
   using ValueType =
-      ms::await_result_t<ChildSender, typename StoppedAsOptionalTask<AwaiterPromise>::promise_type>;
+      cw::await_result_t<ChildSender, typename StoppedAsOptionalTask<AwaiterPromise>::promise_type>;
 
   static constexpr auto makeTask =
       [](StoppedAsOptionalState<AwaiterPromise, ValueType>* state,
@@ -147,4 +147,4 @@ auto stopped_as_optional(ChildSender&& childSender)
       std::forward<ChildSender>(childSender)};
 }
 
-} // namespace ms
+} // namespace cw

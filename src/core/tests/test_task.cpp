@@ -6,11 +6,11 @@
 #include <cassert>
 
 // Coroutines used in tests
-auto coro_task_void() -> ms::Task<void> { co_return; }
+auto coro_task_void() -> cw::Task<void> { co_return; }
 
-auto coro_task_int() -> ms::Task<int> { co_return 42; }
+auto coro_task_int() -> cw::Task<int> { co_return 42; }
 
-auto coro_task_in_task() -> ms::Task<int> {
+auto coro_task_in_task() -> cw::Task<int> {
   co_await coro_task_void();
   co_return 42;
 }

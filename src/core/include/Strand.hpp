@@ -5,7 +5,7 @@
 
 #include "Observable.hpp"
 
-namespace ms {
+namespace cw {
 
 struct StrandContext;
 
@@ -22,4 +22,4 @@ private:
   StrandContext* mContext;
 };
 
-} // namespace ms
+} // namespace cw

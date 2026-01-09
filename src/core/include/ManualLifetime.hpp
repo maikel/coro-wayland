@@ -3,7 +3,7 @@
 
 #pragma once
 
-namespace ms {
+namespace cw {
 
 template <class Tp> class ManualLifetime {
 public:
@@ -45,4 +45,4 @@ template <class Tp> auto ManualLifetime<Tp>::operator->() const noexcept -> cons
   return reinterpret_cast<const Tp*>(mStorage);
 }
 
-} // namespace ms
+} // namespace cw

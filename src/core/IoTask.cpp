@@ -3,7 +3,7 @@
 
 #include "IoTask.hpp"
 
-namespace ms {
+namespace cw {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation Details                                                  IoTaskContextBase
@@ -37,4 +37,4 @@ auto IoTaskEnv::query(get_scheduler_t) const noexcept -> IoScheduler {
 
 auto IoTaskContext::get_env() const noexcept -> IoTaskEnv { return IoTaskEnv{this}; }
 
-} // namespace ms
+} // namespace cw

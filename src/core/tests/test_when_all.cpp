@@ -10,40 +10,40 @@
 
 #include <cassert>
 
-auto coro_void() -> ms::Task<void> { co_return; }
+auto coro_void() -> cw::Task<void> { co_return; }
 
-auto coro_just(int value) -> ms::Task<int> { co_return value; }
+auto coro_just(int value) -> cw::Task<int> { co_return value; }
 
 auto coro_delayed(std::vector<int>& results, int value, std::chrono::milliseconds delay)
-    -> ms::IoTask<void> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+    -> cw::IoTask<void> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   co_await scheduler.schedule_after(delay);
   results.push_back(value);
 }
 
-auto coro_exception() -> ms::Task<int> {
+auto coro_exception() -> cw::Task<int> {
   throw std::runtime_error("Test exception");
   co_return 0;
 }
 
 void test_when_all_with_no_senders() {
-  auto whenAllTask = ms::when_all();
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto whenAllTask = cw::when_all();
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(result.has_value());
   // Should return empty tuple
 }
 
 void test_when_all_with_single_sender() {
-  auto whenAllTask = ms::when_all(coro_just(42));
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto whenAllTask = cw::when_all(coro_just(42));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(result.has_value());
   auto [value] = result.value();
   assert(value == 42);
 }
 
 void test_two_synchronous_awaitables() {
-  auto whenAllTask = ms::when_all(coro_just(42), coro_just(43));
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto whenAllTask = cw::when_all(coro_just(42), coro_just(43));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(result.has_value());
   auto [result1, result2] = result.value();
   assert(result1 == 42);
@@ -52,11 +52,11 @@ void test_two_synchronous_awaitables() {
 
 void test_multiple_delays() {
   std::vector<int> results;
-  auto whenAllTask = ms::when_all(coro_delayed(results, 1, std::chrono::milliseconds(100)),
+  auto whenAllTask = cw::when_all(coro_delayed(results, 1, std::chrono::milliseconds(100)),
                                   coro_delayed(results, 2, std::chrono::milliseconds(50)),
                                   coro_delayed(results, 3, std::chrono::milliseconds(150)));
   auto t0 = std::chrono::steady_clock::now();
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   auto t1 = std::chrono::steady_clock::now();
   assert(t1 - t0 >= std::chrono::milliseconds(150));
   assert(result.has_value());
@@ -65,10 +65,10 @@ void test_multiple_delays() {
 
 void test_stopped_first_delay() {
   std::vector<int> results;
-  auto whenAllTask = ms::when_all(ms::just_stopped(),                                       //
+  auto whenAllTask = cw::when_all(cw::just_stopped(),                                       //
                                   coro_delayed(results, 1, std::chrono::milliseconds(100)), //
                                   coro_delayed(results, 2, std::chrono::milliseconds(50)));
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(!result.has_value());
   assert((results == std::vector<int>{}));
 }
@@ -76,9 +76,9 @@ void test_stopped_first_delay() {
 void test_stopped_last_delay() {
   std::vector<int> results;
   auto whenAllTask =
-      ms::when_all(coro_delayed(results, 1, std::chrono::years(2)),
-                   coro_delayed(results, 2, std::chrono::years(3)), ms::just_stopped());
-  auto result = ms::sync_wait(std::move(whenAllTask));
+      cw::when_all(coro_delayed(results, 1, std::chrono::years(2)),
+                   coro_delayed(results, 2, std::chrono::years(3)), cw::just_stopped());
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(!result.has_value());
   assert((results == std::vector<int>{}));
 }
@@ -86,10 +86,10 @@ void test_stopped_last_delay() {
 void test_exception_first_delay() {
   std::vector<int> results;
   auto whenAllTask =
-      ms::when_all(coro_exception(), coro_delayed(results, 1, std::chrono::milliseconds(100)),
+      cw::when_all(coro_exception(), coro_delayed(results, 1, std::chrono::milliseconds(100)),
                    coro_delayed(results, 2, std::chrono::milliseconds(50)));
   try {
-    ms::sync_wait(std::move(whenAllTask));
+    cw::sync_wait(std::move(whenAllTask));
     assert(false); // Should not reach here
   } catch (const std::runtime_error& e) {
     assert(std::string(e.what()) == "Test exception");
@@ -100,10 +100,10 @@ void test_exception_first_delay() {
 void test_exception_last_delay() {
   std::vector<int> results;
   auto whenAllTask =
-      ms::when_all(coro_delayed(results, 1, std::chrono::milliseconds(100)),
+      cw::when_all(coro_delayed(results, 1, std::chrono::milliseconds(100)),
                    coro_delayed(results, 2, std::chrono::milliseconds(50)), coro_exception());
   try {
-    ms::sync_wait(std::move(whenAllTask));
+    cw::sync_wait(std::move(whenAllTask));
     assert(false); // Should not reach here
   } catch (const std::runtime_error& e) {
     assert(std::string(e.what()) == "Test exception");
@@ -115,16 +115,16 @@ void test_cancellation_stops_siblings() {
   std::atomic<int> started{0};
   std::atomic<int> completed{0};
 
-  auto slow_task = [&]() -> ms::IoTask<void> {
+  auto slow_task = [&]() -> cw::IoTask<void> {
     started.fetch_add(1);
-    ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+    cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
     co_await scheduler.schedule_after(std::chrono::hours(1));
     completed.fetch_add(1);
   };
 
-  auto whenAllTask = ms::when_all(ms::just_stopped(), slow_task(), slow_task());
+  auto whenAllTask = cw::when_all(cw::just_stopped(), slow_task(), slow_task());
 
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(!result.has_value());
   // Children should have started but not completed
   assert(started.load() == 2);
@@ -132,8 +132,8 @@ void test_cancellation_stops_siblings() {
 }
 
 void test_mixed_void_and_value_returns() {
-  auto whenAllTask = ms::when_all(coro_just(42), coro_void(), coro_just(100));
-  auto result = ms::sync_wait(std::move(whenAllTask));
+  auto whenAllTask = cw::when_all(coro_just(42), coro_void(), coro_just(100));
+  auto result = cw::sync_wait(std::move(whenAllTask));
   assert(result.has_value());
   auto [val1, val2] = result.value();
   assert(val1 == 42);
@@ -141,19 +141,19 @@ void test_mixed_void_and_value_returns() {
 }
 
 void test_all_void_returns() {
-  auto whenAllTask = ms::when_all(coro_void(), coro_void(), coro_void());
-  std::optional<std::tuple<>> result = ms::sync_wait(std::move(whenAllTask));
+  auto whenAllTask = cw::when_all(coro_void(), coro_void(), coro_void());
+  std::optional<std::tuple<>> result = cw::sync_wait(std::move(whenAllTask));
   assert(result.has_value());
 }
 
 void test_stop_and_exception_race() {
   std::vector<int> results;
-  auto whenAllTask = ms::when_all(ms::just_stopped(), coro_exception());
+  auto whenAllTask = cw::when_all(cw::just_stopped(), coro_exception());
   // stop will win the race becaues they are started in order
   bool caught_exception = false;
   bool stopped = false;
   try {
-    auto result = ms::sync_wait(std::move(whenAllTask));
+    auto result = cw::sync_wait(std::move(whenAllTask));
     stopped = !result.has_value();
   } catch (...) {
     caught_exception = true;
@@ -162,12 +162,12 @@ void test_stop_and_exception_race() {
 }
 
 void test_multiple_exceptions_first_wins() {
-  auto whenAllTask = ms::when_all(coro_exception(), []() -> ms::Task<void> {
+  auto whenAllTask = cw::when_all(coro_exception(), []() -> cw::Task<void> {
     throw std::logic_error("Second exception");
     co_return;
   }());
   try {
-    ms::sync_wait(std::move(whenAllTask));
+    cw::sync_wait(std::move(whenAllTask));
     assert(false);
   } catch (const std::runtime_error& e) {
     // First exception should win due to atomic CAS

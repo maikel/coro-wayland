@@ -11,7 +11,7 @@
 
 #include "Logging.hpp"
 
-namespace ms::wayland {
+namespace cw::wayland {
 
 struct ClientContext {
   Connection mConnection;
@@ -89,14 +89,14 @@ public:
     std::exception_ptr exception = nullptr;
     bool stopped = false;
     try {
-      stopped = !(co_await ms::stopped_as_optional(std::move(downstreamTask))).has_value();
+      stopped = !(co_await cw::stopped_as_optional(std::move(downstreamTask))).has_value();
     } catch (...) {
       Log::e("Caught exception in wayland::Client");
       exception = std::current_exception();
     }
     if (stopped) {
       Log::d("wayland::Client was stopped.");
-      co_await ms::just_stopped();
+      co_await cw::just_stopped();
     }
     if (exception) {
       std::rethrow_exception(exception);
@@ -124,4 +124,4 @@ auto Client::bind_global(const Registry::GlobalEvent& global, ObjectId new_id) -
   mContext->mRegistry.bind(global.name, global.interface, global.version, new_id);
 }
 
-} // namespace ms::wayland
+} // namespace cw::wayland

@@ -7,7 +7,7 @@
 
 #include <unistd.h>
 
-namespace ms {
+namespace cw {
 
 char levelToChar(Log::Level level) {
   switch (level) {
@@ -34,4 +34,4 @@ void Log::vlog(Level level, const std::source_location& location, std::string_vi
                levelToChar(level), pid, tid, message.c_str());
 }
 
-} // namespace ms
+} // namespace cw

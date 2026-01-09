@@ -20,7 +20,7 @@
 #include <string_view>
 #include <variant>
 
-namespace ms::wayland {
+namespace cw::wayland {
 
 {% for interface in interfaces %}struct {{ interface.cppname }}Context;
 {% endfor %}
@@ -87,4 +87,4 @@ private:
 {% endfor %}
 {% endfor %}
 
-} // namespace ms
+} // namespace cw

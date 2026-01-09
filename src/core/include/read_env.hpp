@@ -9,7 +9,7 @@
 #include <optional>
 #include <utility>
 
-namespace ms {
+namespace cw {
 
 template <class ResultType> class ReadEnvAwaiter {
 private:
@@ -30,7 +30,7 @@ public:
   explicit ReadEnvSender(Query query) : mQuery(std::move(query)) {}
 
   template <class Promise> auto connect(Promise& promise) noexcept {
-    return ReadEnvAwaiter{mQuery(::ms::get_env(promise))};
+    return ReadEnvAwaiter{mQuery(::cw::get_env(promise))};
   }
 
 private:
@@ -41,4 +41,4 @@ template <class Query> auto read_env(Query query) noexcept -> ReadEnvSender<Quer
   return ReadEnvSender<Query>(std::move(query));
 }
 
-} // namespace ms
+} // namespace cw

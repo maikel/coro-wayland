@@ -5,7 +5,7 @@
 
 #include <concepts>
 
-namespace ms {
+namespace cw {
 
 struct NarrowError : public std::runtime_error {
   NarrowError() : std::runtime_error("narrowing error") {}
@@ -28,4 +28,4 @@ auto narrow(U u) -> T {
   return t;
 }
 
-} // namespace ms
+} // namespace cw

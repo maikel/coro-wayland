@@ -7,7 +7,7 @@
 #include <source_location>
 #include <string_view>
 
-namespace ms {
+namespace cw {
 
 struct Log {
   enum class Level { Debug, Info, Warning, Error };
@@ -54,4 +54,4 @@ struct Log {
   template <typename... Args> e(std::string_view, Args&&...) -> e<Args...>;
 };
 
-} // namespace ms
+} // namespace cw

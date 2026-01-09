@@ -24,7 +24,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-namespace ms::wayland {
+namespace cw::wayland {
 
 class ConnectionContext {
 public:
@@ -128,7 +128,7 @@ public:
   ConnectionObservable() noexcept = default;
 
   auto subscribe(Subscriber subscriber) noexcept -> IoTask<void> {
-    IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+    IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
     ConnectionContext context{scheduler};
     co_await scheduler.poll(context.get_fd(), POLLIN | POLLOUT | POLLERR);
     int error = 0;
@@ -143,8 +143,8 @@ public:
     std::exception_ptr exception = nullptr;
     bool stopped = false;
     try {
-      stopped = !(co_await ms::stopped_as_optional(
-                      ms::when_any(subscriber(std::move(handle)), recv_messages(&context))))
+      stopped = !(co_await cw::stopped_as_optional(
+                      cw::when_any(subscriber(std::move(handle)), recv_messages(&context))))
                      .has_value();
       if (stopped) {
         Log::d("Wayland connection was stopped.");
@@ -158,7 +158,7 @@ public:
     Log::d("Closing connection to wayland server.");
     co_await context.close();
     if (stopped) {
-      co_await ms::just_stopped();
+      co_await cw::just_stopped();
     }
     if (exception) {
       std::rethrow_exception(exception);
@@ -172,7 +172,7 @@ private:
       -> IoTask<std::size_t> {
     char controlBuffer[256];
     std::span<char> controlBufferSpan(controlBuffer);
-    IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+    IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
     std::size_t totalBytesRead = 0;
     std::span<char> remainingBuffer = buffer;
     while (totalBytesRead < minBytes) {
@@ -489,4 +489,4 @@ void Connection::send_message(std::vector<char> message, std::optional<FileDescr
   mConnection->mScope.spawn(std::move(task));
 }
 
-} // namespace ms::wayland
+} // namespace cw::wayland

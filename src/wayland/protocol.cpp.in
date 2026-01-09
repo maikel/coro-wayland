@@ -15,37 +15,37 @@
 #include "stopped_as_optional.hpp"
 #include "just_stopped.hpp"
 
-namespace ms::wayland {
+namespace cw::wayland {
 namespace {
 template <class Value>
-auto coro_just(Value val) -> IoTask<Value> {
+auto coro_just(Value val) -> cw::IoTask<Value> {
   co_return val;
 }
 } // namespace
 
 {% for interface in interfaces %}
-struct {{ interface.cppname }}Context : ProxyInterface {
-  explicit {{ interface.cppname }}Context(ObjectId objectId, Connection connection);
+struct {{ interface.cppname }}Context : cw::wayland::ProxyInterface {
+  explicit {{ interface.cppname }}Context(cw::wayland::ObjectId objectId, cw::wayland::Connection connection);
   ~{{ interface.cppname }}Context() override;
 
-  auto handle_message(std::span<const char> message, OpCode opCode) -> IoTask<void> override;
-  auto close() -> Task<void>;
+  auto handle_message(std::span<const char> message, cw::wayland::OpCode opCode) -> cw::IoTask<void> override;
+  auto close() -> cw::Task<void>;
 
   auto get_handle() -> {{ interface.cppname }};
 
   {% if interface.events %}
-  AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ interface.cppname }}::{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
+  cw::AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ interface.cppname }}::{{ event.cppname }}{% endfor %}>> mEventQueue;{% endif %}
 };
 
-{{ interface.cppname }}Context::{{ interface.cppname }}Context(ObjectId objectId, Connection connection)
-: ProxyInterface(objectId, connection){% if interface.events %}, mEventQueue(connection.get_scheduler()){% endif %} {}
+{{ interface.cppname }}Context::{{ interface.cppname }}Context(cw::wayland::ObjectId objectId, cw::wayland::Connection connection)
+: cw::wayland::ProxyInterface(objectId, connection){% if interface.events %}, mEventQueue(connection.get_scheduler()){% endif %} {}
 
 {{ interface.cppname }}Context::~{{ interface.cppname }}Context() = default;
 
-auto {{ interface.cppname }}Context::handle_message([[maybe_unused]] std::span<const char> message, OpCode code) -> IoTask<void> {
+auto {{ interface.cppname }}Context::handle_message([[maybe_unused]] std::span<const char> message, cw::wayland::OpCode code) -> cw::IoTask<void> {
   switch (code) {
   {% for event in interface.events %}
-  case OpCode{ {{ event.num }} }: {
+  case cw::wayland::OpCode{ {{ event.num }} }: {
     {{ interface.cppname }}::{{ event.cppname }} eventData{};
     this->read_message(message{% for arg in event.args %}, eventData.{{ arg.name }}{% endfor %});
     co_await this->mEventQueue.push(std::move(eventData));
@@ -58,7 +58,7 @@ auto {{ interface.cppname }}Context::handle_message([[maybe_unused]] std::span<c
   co_return;
 }
 
-auto {{ interface.cppname }}Context::close() -> Task<void> {
+auto {{ interface.cppname }}Context::close() -> cw::Task<void> {
   {% if interface.events %}co_await mEventQueue.close();{% else %}co_return;{% endif %}
 }
 
@@ -68,14 +68,14 @@ auto {{ interface.cppname }}Context::get_handle() -> {{ interface.cppname }} {
 
 namespace {
 struct {{ interface.cppname }}Resource {
-  auto subscribe(std::function<auto(IoTask<{{ interface.cppname }}>) -> IoTask<void>> receiver) const -> IoTask<void>;
+  auto subscribe(std::function<auto(cw::IoTask<{{ interface.cppname }}>) -> cw::IoTask<void>> receiver) const -> cw::IoTask<void>;
 
-  ObjectId objectId;
-  Connection connection;
+  cw::wayland::ObjectId objectId;
+  cw::wayland::Connection connection;
   std::function<void()> mSyncInit;
 };
 
-auto do{{ interface.cppname }}Make(Connection connection, ObjectId objectId, std::function<void()> syncInit, auto receiver) -> IoTask<void> {
+auto do{{ interface.cppname }}Make(cw::wayland::Connection connection, cw::wayland::ObjectId objectId, std::function<void()> syncInit, auto receiver) -> cw::IoTask<void> {
   {{interface.cppname }}Context context{objectId, connection};
   if (syncInit) {
     syncInit();
@@ -84,7 +84,7 @@ auto do{{ interface.cppname }}Make(Connection connection, ObjectId objectId, std
   bool stopped = false;
   std::exception_ptr exception;
   try {
-    stopped = (co_await ms::stopped_as_optional(
+    stopped = (co_await cw::stopped_as_optional(
                   receiver(std::move(task))))
                   .has_value();
   } catch (const std::exception& e) {
@@ -94,19 +94,19 @@ auto do{{ interface.cppname }}Make(Connection connection, ObjectId objectId, std
   }
   co_await context.close();
   if (stopped) {
-    co_await ms::just_stopped();
+    co_await cw::just_stopped();
   }
   if (exception) {
     std::rethrow_exception(exception);
   }
 }
 
-auto {{ interface.cppname }}Resource::subscribe(std::function<auto(IoTask<{{ interface.cppname }}>) -> IoTask<void>> receiver) const -> IoTask<void> {
+auto {{ interface.cppname }}Resource::subscribe(std::function<auto(cw::IoTask<{{ interface.cppname }}>) -> cw::IoTask<void>> receiver) const -> cw::IoTask<void> {
   return do{{ interface.cppname }}Make(connection, objectId, mSyncInit, std::move(receiver));
 }
 } // namespace
 
-auto {{ interface.cppname }}::make(ObjectId objectId, Connection connection, std::function<void()> syncInit) -> Observable<{{ interface.cppname }}> {
+auto {{ interface.cppname }}::make(cw::wayland::ObjectId objectId, cw::wayland::Connection connection, std::function<void()> syncInit) -> cw::Observable<{{ interface.cppname }}> {
   return {{ interface.cppname }}Resource{objectId, connection, std::move(syncInit)};
 }
 
@@ -117,28 +117,28 @@ auto {{ interface.cppname }}::make(ObjectId objectId, Connection connection, std
 
 {{ interface.cppname }}::~{{ interface.cppname }}() = default;
 
-auto {{ interface.cppname }}::get_object_id() const noexcept -> ObjectId {
+auto {{ interface.cppname }}::get_object_id() const noexcept -> cw::wayland::ObjectId {
   return mContext->get_object_id();
 }
 
 {% for request in interface.requests %}
 {% if request.return_type %}auto{% else %}void{% endif %}
 {{ interface.cppname }}::{{ request.name }}({% for arg in request.args %}{% if arg.__tail %}, {% endif %}{{arg.type}} {{arg.name}}{% endfor %})
-const {% if request.return_type %}-> Observable<{{ request.return_type }}>{% endif %} {
+const {% if request.return_type %}-> cw::Observable<{{ request.return_type }}>{% endif %} {
   {% if request.return_type %}auto newObjectId = mContext->get_connection().get_next_object_id();
   auto syncInit = [=, context = this->mContext] {
-    context->send_message(OpCode{ {{ request.num }} }, newObjectId{% for arg in request.args %}, {{ arg.name }}{% endfor %});
+    context->send_message(cw::wayland::OpCode{ {{ request.num }} }, newObjectId{% for arg in request.args %}, {{ arg.name }}{% endfor %});
   };
   return {{ request.return_type }}::make(newObjectId, mContext->get_connection(), std::move(syncInit));
-  {% else %}mContext->send_message(OpCode{ {{ request.num }} }{% for arg in request.args %}, {{ arg.name }}{% endfor %});
+  {% else %}mContext->send_message(cw::wayland::OpCode{ {{ request.num }} }{% for arg in request.args %}, {{ arg.name }}{% endfor %});
   {% endif %}
 }
 {% endfor %}
 {% if interface.events %}
-auto {{ interface.cppname }}::events() const -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> {
+auto {{ interface.cppname }}::events() const -> cw::Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>> {
   return as_observable(mContext->mEventQueue);
 }
 {% endif %}
 {% endfor %}
 
-} // namespace ms
+} // namespace cw

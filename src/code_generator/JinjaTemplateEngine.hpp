@@ -12,7 +12,7 @@
 #include <variant>
 #include <vector>
 
-namespace ms {
+namespace cw {
 
 class JinjaContext;
 
@@ -156,4 +156,4 @@ JinjaObject::JinjaObject(Object&& obj)
         return actualObj.find(key);
       }) {}
 
-} // namespace ms
+} // namespace cw

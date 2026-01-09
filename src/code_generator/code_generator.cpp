@@ -13,7 +13,7 @@
 
 #include <getopt.h>
 
-namespace ms {
+namespace cw {
 struct ProgramOptions {
   std::filesystem::path pathToWaylandXml;
   std::string extension;
@@ -25,26 +25,26 @@ auto read_full_file(std::filesystem::path file) -> std::string;
 
 auto make_context(const XmlTag& protocol, std::string extension) -> JinjaContext;
 
-} // namespace ms
+} // namespace cw
 
 int main(int argc, char** argv) {
-  const ms::ProgramOptions programOptions = ms::parse_command_line_args(argc, argv);
-  const std::string waylandContent = ms::read_full_file(programOptions.pathToWaylandXml);
-  ms::XmlTag protocol = ms::parse_wayland_xml(waylandContent);
+  const cw::ProgramOptions programOptions = cw::parse_command_line_args(argc, argv);
+  const std::string waylandContent = cw::read_full_file(programOptions.pathToWaylandXml);
+  cw::XmlTag protocol = cw::parse_wayland_xml(waylandContent);
   const std::string templateContent(std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>{});
   try {
-    ms::JinjaContext context = make_context(protocol, programOptions.extension);
-    ms::TemplateDocument document = ms::make_document(templateContent, "<stdin>");
+    cw::JinjaContext context = make_context(protocol, programOptions.extension);
+    cw::TemplateDocument document = cw::make_document(templateContent, "<stdin>");
     document.render(context, std::cout);
-  } catch (const ms::RenderError& e) {
+  } catch (const cw::RenderError& e) {
     std::cerr << "Error: " << e.formatted_message(templateContent, "<stdin>") << '\n';
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
   }
 }
 
-namespace ms {
+namespace cw {
 
 auto parse_command_line_args(int argc, char** argv) -> ProgramOptions {
   ProgramOptions result{};
@@ -264,4 +264,4 @@ auto make_context(const XmlTag& protocol, std::string extension) -> JinjaContext
   return JinjaContext(JinjaObject{std::move(root)});
 }
 
-} // namespace ms
+} // namespace cw

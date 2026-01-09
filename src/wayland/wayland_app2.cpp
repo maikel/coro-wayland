@@ -9,7 +9,7 @@
 
 #include "Logging.hpp"
 
-using namespace ms;
+using namespace cw;
 
 auto coro_main() -> IoTask<void> {
   wayland::Client client = co_await use_resource(wayland::Client::make());
@@ -26,7 +26,7 @@ auto coro_main() -> IoTask<void> {
         }
       });
 
-  co_await ms::when_stop_requested();
+  co_await cw::when_stop_requested();
 }
 
 int main() { sync_wait(coro_main()); }

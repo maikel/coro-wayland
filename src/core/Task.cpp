@@ -3,7 +3,7 @@
 
 #include "Task.hpp"
 
-namespace ms {
+namespace cw {
 
 void TaskResult<void>::set_error(std::exception_ptr error) noexcept {
   mResult.template emplace<1>(error);
@@ -32,4 +32,4 @@ TaskEnv::TaskEnv(std::stop_token stopToken) noexcept : mStopToken(stopToken) {}
 
 auto TaskEnv::query(get_stop_token_t) const noexcept -> std::stop_token { return mStopToken; }
 
-} // namespace ms
+} // namespace cw

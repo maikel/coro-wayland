@@ -4,11 +4,11 @@
 #include <iostream>
 #include <sstream>
 
-void render(ms::TemplateDocument& document, const ms::JinjaContext& context, std::ostream& out,
+void render(cw::TemplateDocument& document, const cw::JinjaContext& context, std::ostream& out,
             std::string_view content) {
   try {
     document.render(context, out);
-  } catch (const ms::RenderError& e) {
+  } catch (const cw::RenderError& e) {
     std::string message = e.formatted_message(content, "<template>");
     throw std::runtime_error(message);
   }
@@ -16,10 +16,10 @@ void render(ms::TemplateDocument& document, const ms::JinjaContext& context, std
 
 void test_substitution_hello_world() {
   const std::string templateContent = "Hello, {{ name }}!";
-  ms::TemplateDocument document = ms::make_document(templateContent);
+  cw::TemplateDocument document = cw::make_document(templateContent);
 
-  ms::JinjaContext context{ms::JinjaObject{
-      std::map<std::string, ms::JinjaContext>{{"name", ms::JinjaContext("World")}}}};
+  cw::JinjaContext context{cw::JinjaObject{
+      std::map<std::string, cw::JinjaContext>{{"name", cw::JinjaContext("World")}}}};
 
   std::ostringstream output;
   render(document, context, output, templateContent);
@@ -29,11 +29,11 @@ void test_substitution_hello_world() {
 
 void test_substitution_nested_object() {
   const std::string templateContent = "User: {{ user.name }}, Age: {{ user.age }}";
-  ms::TemplateDocument document = ms::make_document(templateContent);
+  cw::TemplateDocument document = cw::make_document(templateContent);
 
-  ms::JinjaContext context{ms::JinjaObject{std::map<std::string, ms::JinjaContext>{
-      {"user", ms::JinjaContext(ms::JinjaObject{std::map<std::string, ms::JinjaContext>{
-                   {"name", ms::JinjaContext("Alice")}, {"age", ms::JinjaContext("30")}}})}}}};
+  cw::JinjaContext context{cw::JinjaObject{std::map<std::string, cw::JinjaContext>{
+      {"user", cw::JinjaContext(cw::JinjaObject{std::map<std::string, cw::JinjaContext>{
+                   {"name", cw::JinjaContext("Alice")}, {"age", cw::JinjaContext("30")}}})}}}};
 
   std::ostringstream output;
   render(document, context, output, templateContent);
@@ -44,19 +44,19 @@ void test_substitution_nested_object() {
 void test_if_else_statement() {
   const std::string templateContent =
       "{% if is_member %}Welcome back, member!{% else %}Please sign up.{% endif %}";
-  ms::TemplateDocument document = ms::make_document(templateContent);
+  cw::TemplateDocument document = cw::make_document(templateContent);
 
   // Test when is_member is true
-  ms::JinjaContext contextTrue{ms::JinjaObject{
-      std::map<std::string, ms::JinjaContext>{{"is_member", ms::JinjaContext("true")}}}};
+  cw::JinjaContext contextTrue{cw::JinjaObject{
+      std::map<std::string, cw::JinjaContext>{{"is_member", cw::JinjaContext("true")}}}};
   std::ostringstream outputTrue;
   render(document, contextTrue, outputTrue, templateContent);
   std::string output = outputTrue.str();
   assert(output == "Welcome back, member!");
 
   // Test when is_member is false
-  ms::JinjaContext contextFalse{ms::JinjaObject{
-      std::map<std::string, ms::JinjaContext>{{"is_member", ms::JinjaContext("")}}}};
+  cw::JinjaContext contextFalse{cw::JinjaObject{
+      std::map<std::string, cw::JinjaContext>{{"is_member", cw::JinjaContext("")}}}};
   std::ostringstream outputFalse;
   render(document, contextFalse, outputFalse, templateContent);
   assert(outputFalse.str() == "Please sign up.");
@@ -64,12 +64,12 @@ void test_if_else_statement() {
 
 void test_for_loop_statement() {
   const std::string templateContent = "Items:{% for item in items %} {{ item }}{% endfor %}";
-  ms::TemplateDocument document = ms::make_document(templateContent);
+  cw::TemplateDocument document = cw::make_document(templateContent);
 
-  ms::JinjaContext context{ms::JinjaObject{std::map<std::string, ms::JinjaContext>{
+  cw::JinjaContext context{cw::JinjaObject{std::map<std::string, cw::JinjaContext>{
       {"items",
-       ms::JinjaContext(ms::JinjaArray{ms::JinjaContext("Apple"), ms::JinjaContext("Banana"),
-                                       ms::JinjaContext("Cherry")})}}}};
+       cw::JinjaContext(cw::JinjaArray{cw::JinjaContext("Apple"), cw::JinjaContext("Banana"),
+                                       cw::JinjaContext("Cherry")})}}}};
 
   std::ostringstream output;
   render(document, context, output, templateContent);
@@ -79,15 +79,15 @@ void test_for_loop_statement() {
 
 void test_missing_variable() {
   const std::string templateContent = "{{ missin }}";
-  ms::TemplateDocument doc = ms::make_document(templateContent);
-  ms::JinjaContext ctx{ms::JinjaObject{
-      std::map<std::string, ms::JinjaContext>{{"missing", ms::JinjaContext{"missing"}}}}};
+  cw::TemplateDocument doc = cw::make_document(templateContent);
+  cw::JinjaContext ctx{cw::JinjaObject{
+      std::map<std::string, cw::JinjaContext>{{"missing", cw::JinjaContext{"missing"}}}}};
 
   try {
     std::ostringstream out;
     doc.render(ctx, out);
     assert(false); // Should throw
-  } catch (const ms::RenderError& e) {
+  } catch (const cw::RenderError& e) {
     std::string msg = e.formatted_message(templateContent, "<template>");
     assert(msg.find("Did you mean") != std::string::npos);
   }

@@ -6,7 +6,7 @@
 #include <coroutine>
 #include <system_error>
 
-namespace ms {
+namespace cw {
 
 class JustStoppedAwaiter {
 public:
@@ -28,4 +28,4 @@ public:
 
 inline auto just_stopped() noexcept -> JustStoppedAwaiter { return JustStoppedAwaiter{}; }
 
-} // namespace ms
+} // namespace cw

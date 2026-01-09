@@ -11,7 +11,7 @@
 #include <optional>
 #include <variant>
 
-namespace ms {
+namespace cw {
 
 struct SyncWaitEnv {
   IoScheduler scheduler;
@@ -88,7 +88,7 @@ struct SyncWaitTask {
 };
 
 template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
-  using ValueType = ms::await_result_t<Awaitable, SyncWaitTask::promise_type>;
+  using ValueType = cw::await_result_t<Awaitable, SyncWaitTask::promise_type>;
   IoContext ioContext;
   SyncWaitState<ValueType> state{&ioContext};
   auto task = [](SyncWaitState<ValueType>* state, Awaitable&& awaitable) -> SyncWaitTask {
@@ -106,4 +106,4 @@ template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
   return state.get_result();
 }
 
-} // namespace ms
+} // namespace cw

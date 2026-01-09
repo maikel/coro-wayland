@@ -5,7 +5,7 @@
 
 #include "Observable.hpp"
 
-namespace ms::observables {
+namespace cw::observables {
 
 template <class Sender> class SingleObservable {
 public:
@@ -27,4 +27,4 @@ auto single(Sender&& sender) noexcept -> SingleObservable<std::decay_t<Sender>> 
   return SingleObservable<std::decay_t<Sender>>(std::forward<Sender>(sender));
 }
 
-} // namespace ms::observables
+} // namespace cw::observables

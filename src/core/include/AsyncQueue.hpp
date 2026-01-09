@@ -13,7 +13,7 @@
 #include <cassert>
 #include <queue>
 
-namespace ms {
+namespace cw {
 
 template <class Tp> class AsyncQueueHandle;
 
@@ -44,7 +44,7 @@ public:
 
   template <class Receiver> auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
     return [](AsyncQueue<Tp>* queue, Receiver receiver) -> IoTask<void> {
-      std::stop_token stopToken = co_await ms::read_env(ms::get_stop_token);
+      std::stop_token stopToken = co_await cw::read_env(cw::get_stop_token);
       while (!stopToken.stop_requested()) {
         auto popTask = [](AsyncQueue<Tp>* queue) -> IoTask<Tp> {
           co_return co_await queue->pop();
@@ -133,7 +133,7 @@ template <class Tp> auto AsyncQueue<Tp>::pop() {
         if (mQueue->mQueue.empty()) {
           mHandle = handle;
           mQueue->mWaiters.push_back(handle);
-          std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
+          std::stop_token stopToken = cw::get_stop_token(cw::get_env(handle.promise()));
           mStopCallback.emplace(stopToken, OnStopRequested{this});
           return std::noop_coroutine();
         } else {
@@ -158,7 +158,7 @@ template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueueHandle<T
   using Subscriber = std::function<auto(IoTask<AsyncQueueHandle<Tp>>)->IoTask<void>>;
   struct MakeObservable {
     auto subscribe(Subscriber subscriber) noexcept -> IoTask<void> {
-      AsyncQueue<Tp> queue{co_await ms::read_env(ms::get_scheduler)};
+      AsyncQueue<Tp> queue{co_await cw::read_env(cw::get_scheduler)};
       auto handleTask = [](AsyncQueue<Tp>* queue) -> IoTask<AsyncQueueHandle<Tp>> {
         co_return AsyncQueueHandle<Tp>{*queue};
       }(&queue);
@@ -169,4 +169,4 @@ template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueueHandle<T
   return MakeObservable{};
 }
 
-} // namespace ms
+} // namespace cw

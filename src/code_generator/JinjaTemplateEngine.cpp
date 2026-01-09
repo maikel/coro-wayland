@@ -10,7 +10,7 @@
 #include <span>
 #include <stdexcept>
 
-namespace ms {
+namespace cw {
 MapObject::MapObject() = default;
 
 MapObject::MapObject(std::map<std::string, JinjaContext> map) : mMap(std::move(map)) {}
@@ -810,4 +810,4 @@ auto make_document(std::string_view templateContent, const std::string& template
   throw std::runtime_error(message);
 }
 
-} // namespace ms
+} // namespace cw

@@ -5,13 +5,13 @@
 
 #include "Observable.hpp"
 
-namespace ms::observables {
+namespace cw::observables {
 
 class EmptyObservable {
 public:
-  auto subscribe(auto) noexcept -> ms::IoTask<void> { co_return; }
+  auto subscribe(auto) noexcept -> cw::IoTask<void> { co_return; }
 };
 
 inline auto empty() noexcept -> EmptyObservable { return EmptyObservable{}; }
 
-} // namespace ms::observables
+} // namespace cw::observables

@@ -9,7 +9,7 @@
 #include <optional>
 #include <stop_token>
 
-namespace ms {
+namespace cw {
 template <class AwaitingPromise> struct WhenStopRequestedAwaiter {
   WhenStopRequestedAwaiter() = default;
 
@@ -17,7 +17,7 @@ template <class AwaitingPromise> struct WhenStopRequestedAwaiter {
 
   auto await_suspend(std::coroutine_handle<AwaitingPromise> handle) noexcept
       -> std::coroutine_handle<> {
-    std::stop_token stopToken = ms::get_stop_token(ms::get_env(handle.promise()));
+    std::stop_token stopToken = cw::get_stop_token(cw::get_env(handle.promise()));
     if (stopToken.stop_requested()) {
       return handle;
     }
@@ -54,4 +54,4 @@ template <class Fn> auto upon_stop_requested(Fn fn) -> Task<void> {
   fn();
 }
 
-} // namespace ms
+} // namespace cw

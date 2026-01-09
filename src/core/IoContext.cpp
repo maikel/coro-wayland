@@ -12,7 +12,7 @@
 #include <system_error>
 #include <unistd.h>
 
-namespace ms {
+namespace cw {
 IoContext::IoContext() {
   mWakeupHandle = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (mWakeupHandle == -1) {
@@ -315,4 +315,4 @@ auto PollSender::operator co_await() const noexcept -> PollOperation {
   return PollOperation{*mContext, mFd, mEvents};
 }
 
-} // namespace ms
+} // namespace cw

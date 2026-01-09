@@ -16,7 +16,7 @@
 #include <stop_token>
 #include <vector>
 
-namespace ms {
+namespace cw {
 
 /// Task descriptor for IoContext operations.
 /// Contains scheduling information and completion callback.
@@ -248,7 +248,7 @@ void CancellableOperation<Derived>::await_suspend(std::coroutine_handle<Promise>
   mHandle = handle;
   auto* promise = &handle.promise();
   mSetStopped = [promise] { promise->unhandled_stopped(); };
-  std::stop_token token = ms::get_stop_token(ms::get_env(handle.promise()));
+  std::stop_token token = cw::get_stop_token(cw::get_env(handle.promise()));
   this->do_await_suspend(token);
 }
 
@@ -313,4 +313,4 @@ template <class Derived>
 CancellableOperation<Derived>::CancellableOperation(IoContext& context) noexcept
     : mContext(context) {}
 
-} // namespace ms
+} // namespace cw

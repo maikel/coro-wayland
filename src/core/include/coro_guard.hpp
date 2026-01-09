@@ -6,7 +6,7 @@
 #include "ImmovableBase.hpp"
 #include "Task.hpp"
 
-namespace ms {
+namespace cw {
 template <class AwaiterPromise> struct CoroGuardTask {
   struct promise_type;
   std::coroutine_handle<promise_type> mHandle;
@@ -101,4 +101,4 @@ inline auto coro_guard(CleanupAwaitable&& cleanupAwaitable) noexcept
       std::forward<CleanupAwaitable>(cleanupAwaitable)};
 }
 
-} // namespace ms
+} // namespace cw

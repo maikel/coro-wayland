@@ -15,42 +15,42 @@
 #include <unistd.h>
 
 // Coroutines used in tests
-auto coro_task_int() -> ms::Task<int> { co_return 42; }
+auto coro_task_int() -> cw::Task<int> { co_return 42; }
 
-auto coro_task_void() -> ms::Task<void> { co_return; }
+auto coro_task_void() -> cw::Task<void> { co_return; }
 
-auto coro_io_task_int() -> ms::IoTask<int> { co_return 42; }
+auto coro_io_task_int() -> cw::IoTask<int> { co_return 42; }
 
-auto coro_read_env_task() -> ms::IoTask<int> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_read_env_task() -> cw::IoTask<int> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   co_await scheduler.schedule();
   co_return 42;
 }
 
-auto coro_schedule_delayed() -> ms::IoTask<void> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_schedule_delayed() -> cw::IoTask<void> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   auto t0 = std::chrono::steady_clock::now();
   co_await scheduler.schedule_after(std::chrono::milliseconds(100));
   auto t1 = std::chrono::steady_clock::now();
   assert(t1 - t0 >= std::chrono::milliseconds(100));
 }
 
-auto coro_schedule_immediate() -> ms::IoTask<int> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_schedule_immediate() -> cw::IoTask<int> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   co_await scheduler.schedule();
   co_return 123;
 }
 
-auto coro_schedule_at_absolute_time() -> ms::IoTask<void> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_schedule_at_absolute_time() -> cw::IoTask<void> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   auto target = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
   co_await scheduler.schedule_at(target);
   auto actual = std::chrono::steady_clock::now();
   assert(actual >= target);
 }
 
-auto coro_multiple_timers() -> ms::IoTask<std::vector<int>> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_multiple_timers() -> cw::IoTask<std::vector<int>> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   std::vector<int> results;
 
   auto t0 = std::chrono::steady_clock::now();
@@ -69,8 +69,8 @@ auto coro_multiple_timers() -> ms::IoTask<std::vector<int>> {
   co_return results;
 }
 
-auto coro_poll_pipe_read() -> ms::IoTask<void> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_poll_pipe_read() -> cw::IoTask<void> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
 
   int pipefd[2];
   assert(pipe(pipefd) == 0);
@@ -96,8 +96,8 @@ auto coro_poll_pipe_read() -> ms::IoTask<void> {
   close(pipefd[1]);
 }
 
-auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
-  ms::IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+auto coro_cancel_delayed_operation() -> cw::IoTask<bool> {
+  cw::IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
   std::stop_source stopSource;
   stopSource.request_stop();
 
@@ -105,7 +105,7 @@ auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
   try {
     auto schedule = scheduler.schedule_after(std::chrono::seconds(10));
     auto stoppedSchedule =
-        ms::write_env(std::move(schedule), ms::get_stop_token, stopSource.get_token());
+        cw::write_env(std::move(schedule), cw::get_stop_token, stopSource.get_token());
     co_await std::move(stoppedSchedule);
     co_return false; // Should not reach here
   } catch (...) {
@@ -115,46 +115,46 @@ auto coro_cancel_delayed_operation() -> ms::IoTask<bool> {
 
 // Test cases
 void test_sync_wait_with_int_result() {
-  auto result = ms::sync_wait(coro_task_int());
+  auto result = cw::sync_wait(coro_task_int());
   assert(result.has_value());
   assert(result.value() == 42);
 }
 
 void test_sync_wait_with_void_result() {
-  bool result = ms::sync_wait(coro_task_void());
+  bool result = cw::sync_wait(coro_task_void());
   assert(result);
 }
 
 void test_sync_wait_with_io_task() {
-  auto result = ms::sync_wait(coro_io_task_int());
+  auto result = cw::sync_wait(coro_io_task_int());
   assert(result.has_value());
   assert(result.value() == 42);
 }
 
 void test_sync_wait_with_read_env() {
-  auto result = ms::sync_wait(coro_read_env_task());
+  auto result = cw::sync_wait(coro_read_env_task());
   assert(result.has_value());
   assert(result.value() == 42);
 }
 
 void test_sync_wait_with_delayed_schedule() {
-  bool result = ms::sync_wait(coro_schedule_delayed());
+  bool result = cw::sync_wait(coro_schedule_delayed());
   assert(result);
 }
 
 void test_immediate_schedule() {
-  auto result = ms::sync_wait(coro_schedule_immediate());
+  auto result = cw::sync_wait(coro_schedule_immediate());
   assert(result.has_value());
   assert(result.value() == 123);
 }
 
 void test_absolute_time_schedule() {
-  bool result = ms::sync_wait(coro_schedule_at_absolute_time());
+  bool result = cw::sync_wait(coro_schedule_at_absolute_time());
   assert(result);
 }
 
 void test_multiple_sequential_timers() {
-  auto result = ms::sync_wait(coro_multiple_timers());
+  auto result = cw::sync_wait(coro_multiple_timers());
   assert(result.has_value());
   assert(result.value().size() == 3);
   assert(result.value()[0] == 1);
@@ -163,12 +163,12 @@ void test_multiple_sequential_timers() {
 }
 
 void test_poll_operation() {
-  bool result = ms::sync_wait(coro_poll_pipe_read());
+  bool result = cw::sync_wait(coro_poll_pipe_read());
   assert(result);
 }
 
 void test_cancel_delayed_operation() {
-  auto result = ms::sync_wait(coro_cancel_delayed_operation());
+  auto result = cw::sync_wait(coro_cancel_delayed_operation());
   assert(!result.has_value());
 }
 

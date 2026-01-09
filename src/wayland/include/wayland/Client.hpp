@@ -8,7 +8,7 @@
 #include "wayland/Connection.hpp"
 #include "wayland/protocol.hpp"
 
-namespace ms::wayland {
+namespace cw::wayland {
 
 struct ClientContext;
 
@@ -56,4 +56,4 @@ template <class GlobalInterface> auto Client::bind() -> Observable<GlobalInterfa
   return BindObservable{*this};
 }
 
-} // namespace ms::wayland
+} // namespace cw::wayland

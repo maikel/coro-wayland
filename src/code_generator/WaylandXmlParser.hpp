@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-namespace ms {
+namespace cw {
 
 class XmlNode;
 
@@ -35,4 +35,4 @@ private:
 
 auto parse_wayland_xml(std::string_view xmlContent) -> XmlTag;
 
-} // namespace ms
+} // namespace cw

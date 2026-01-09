@@ -21,7 +21,7 @@
 #include <mdspan>
 #include <span>
 
-using namespace ms;
+using namespace cw;
 
 auto create_memory_fd() -> FileDescriptor {
   int fd = ::memfd_create("wayland-shm", MFD_CLOEXEC | MFD_ALLOW_SEALING);

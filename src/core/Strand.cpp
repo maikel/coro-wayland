@@ -12,7 +12,7 @@
 
 #include <queue>
 
-namespace ms {
+namespace cw {
 
 struct StrandContext {
   IoScheduler mScheduler;
@@ -24,7 +24,7 @@ auto Strand::make() -> Observable<Strand> {
   struct StrandObservable {
     auto subscribe(std::function<auto(IoTask<Strand>)->IoTask<void>> receiver) const noexcept
         -> IoTask<void> {
-      IoScheduler scheduler = co_await ms::read_env(ms::get_scheduler);
+      IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
       AsyncScope scope{};
       StrandContext context{scheduler, AsyncScopeHandle{scope}, {}};
       Strand strand{context};
@@ -32,13 +32,13 @@ auto Strand::make() -> Observable<Strand> {
       bool stopped = false;
       try {
         stopped =
-            (co_await ms::stopped_as_optional(receiver(coro_just<Strand>(strand)))).has_value();
+            (co_await cw::stopped_as_optional(receiver(coro_just<Strand>(strand)))).has_value();
       } catch (...) {
         exception = std::current_exception();
       }
       co_await scope.close();
       if (stopped) {
-        co_await ms::just_stopped();
+        co_await cw::just_stopped();
       }
       if (exception) {
         std::rethrow_exception(exception);
@@ -90,4 +90,4 @@ auto Strand::lock() -> Observable<void> {
 
 auto Strand::get_scheduler() const noexcept -> IoScheduler { return mContext->mScheduler; }
 
-} // namespace ms
+} // namespace cw

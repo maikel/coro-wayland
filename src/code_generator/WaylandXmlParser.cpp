@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace ms {
+namespace cw {
 
 namespace {
 
@@ -254,4 +254,4 @@ auto XmlNode::isTag() const noexcept -> bool { return mStorage.index() == 1; }
 auto XmlNode::asText() const -> const std::string& { return std::get<0>(mStorage); }
 auto XmlNode::asTag() const -> const XmlTag& { return std::get<1>(mStorage); }
 
-} // namespace ms
+} // namespace cw

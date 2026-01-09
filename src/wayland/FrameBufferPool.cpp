@@ -16,7 +16,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-namespace ms::wayland {
+namespace cw::wayland {
 
 struct FrameBufferPoolContext : ImmovableBase {
   Client mClient;
@@ -206,4 +206,4 @@ auto FrameBufferPool::get_current_buffers() -> Observable<std::array<BufferView,
   return mContext->get_current_buffers();
 }
 
-} // namespace ms::wayland
+} // namespace cw::wayland
