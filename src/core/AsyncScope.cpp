@@ -32,7 +32,7 @@ struct AsyncScopeObservable {
     bool stopped = false;
     std::exception_ptr exception = nullptr;
     try {
-      stopped = (co_await cw::stopped_as_optional(receiver(std::move(task)))).has_value();
+      stopped = !(co_await cw::stopped_as_optional(receiver(std::move(task)))).has_value();
     } catch (...) {
       exception = std::current_exception();
     }
