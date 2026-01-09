@@ -7,7 +7,7 @@
 
 #include <mdspan>
 
-namespace cw::protocol {
+namespace cw {
 
 struct FrameBufferPoolContext;
 
@@ -21,7 +21,7 @@ public:
   auto resize(Width width, Height height) -> IoTask<void>;
 
   struct BufferView {
-    Buffer buffer;
+    protocol::Buffer buffer;
     std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> pixels;
   };
 
@@ -33,4 +33,4 @@ private:
   FrameBufferPoolContext* mContext;
 };
 
-} // namespace cw::protocol
+} // namespace cw

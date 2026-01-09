@@ -24,7 +24,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-namespace cw::protocol {
+namespace cw {
 
 class ConnectionContext {
 public:
@@ -489,4 +489,4 @@ void Connection::send_message(std::vector<char> message, std::optional<FileDescr
   mConnection->mScope.spawn(std::move(task));
 }
 
-} // namespace cw::protocol
+} // namespace cw

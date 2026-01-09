@@ -41,7 +41,7 @@ public:
 
   ~{{ interface.cppname }}();
 
-  static auto make(cw::protocol::ObjectId objectId, cw::protocol::Connection connection, std::function<void()> syncInit = nullptr) -> cw::Observable<{{ interface.cppname }}>;
+  static auto make(cw::ObjectId objectId, cw::Connection connection, std::function<void()> syncInit = nullptr) -> cw::Observable<{{ interface.cppname }}>;
 
 {% for entry in interface.enums %}
 {% if entry.description %}/** @brief {{ entry.description }} */{% endif %}
@@ -63,10 +63,10 @@ public:
   const{% if request.return_type %}-> cw::Observable<{{ request.return_type }}>{% endif %};
 {% endfor %}
 
-  auto get_object_id() const noexcept -> cw::protocol::ObjectId;
+  auto get_object_id() const noexcept -> cw::ObjectId;
 
 private:
-  friend class Connection;
+  friend class ::cw::Connection;
   friend struct {{ interface.cppname }}Context;
 
   explicit {{ interface.cppname }}({{ interface.cppname }}Context* context);

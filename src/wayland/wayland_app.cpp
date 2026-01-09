@@ -49,7 +49,7 @@ auto fill_shm_buffer(std::mdspan<uint32_t, std::dextents<std::size_t, 2>> buffer
 }
 
 struct ApplicationState {
-  explicit ApplicationState(protocol::Connection conn) : connection(conn) {
+  explicit ApplicationState(Connection conn) : connection(conn) {
     const int width = 1920, height = 1080;
     const int stride = width * 4;
     const int shm_pool_size = height * stride * 2;
@@ -69,7 +69,7 @@ struct ApplicationState {
     fill_shm_buffer(mShmBuffer2, 0xff00ff00);
   }
 
-  protocol::Connection connection;
+  Connection connection;
   protocol::Display display;
   protocol::Registry registry;
   protocol::Compositor compositor;
@@ -88,7 +88,8 @@ auto create_window(
     ApplicationState& app,
     AsyncUnorderedMapHandle<std::string, protocol::Registry::GlobalEvent> nameFromInterface)
     -> IoTask<void> {
-  auto compositorEvent = co_await nameFromInterface.wait_for(protocol::Compositor::interface_name());
+  auto compositorEvent =
+      co_await nameFromInterface.wait_for(protocol::Compositor::interface_name());
   auto shmEvent = co_await nameFromInterface.wait_for(protocol::Shm::interface_name());
   auto xdgEvent = co_await nameFromInterface.wait_for(protocol::XdgWmBase::interface_name());
   auto compositorObjectId = app.connection.get_next_object_id();
@@ -163,10 +164,9 @@ auto create_window(
 }
 
 auto coro_main() -> IoTask<void> {
-  protocol::Connection connection = co_await use_resource(protocol::Connection::make());
+  Connection connection = co_await use_resource(Connection::make());
   ApplicationState app{connection};
-  app.display =
-      co_await use_resource(protocol::Display::make(protocol::ObjectId::Display, app.connection));
+  app.display = co_await use_resource(protocol::Display::make(ObjectId::Display, app.connection));
   app.registry = co_await use_resource(app.display.get_registry());
   auto nameFromInterface = co_await use_resource(
       make_async_unordered_map<std::string, protocol::Registry::GlobalEvent>());

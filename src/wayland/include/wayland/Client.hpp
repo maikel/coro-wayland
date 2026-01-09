@@ -8,7 +8,7 @@
 #include "wayland/Connection.hpp"
 #include "wayland/protocol.hpp"
 
-namespace cw::protocol {
+namespace cw {
 
 struct ClientContext;
 
@@ -20,12 +20,12 @@ public:
 
   auto connection() -> Connection;
 
-  auto events() -> Observable<Display::ErrorEvent>;
+  auto events() -> Observable<protocol::Display::ErrorEvent>;
 
 private:
   auto get_next_object_id() -> ObjectId;
-  auto find_global(std::string_view interface) -> IoTask<Registry::GlobalEvent>;
-  auto bind_global(const Registry::GlobalEvent& global, ObjectId new_id) -> void;
+  auto find_global(std::string_view interface) -> IoTask<protocol::Registry::GlobalEvent>;
+  auto bind_global(const protocol::Registry::GlobalEvent& global, ObjectId new_id) -> void;
 
   friend struct ClientContext;
   explicit Client(ClientContext& context) noexcept : mContext(&context) {}
@@ -37,7 +37,8 @@ template <class GlobalInterface> auto Client::bind() -> Observable<GlobalInterfa
     static auto do_subscribe(Client client,
                              std::function<auto(IoTask<GlobalInterface>)->IoTask<void>> receiver)
         -> IoTask<void> {
-      Registry::GlobalEvent global = co_await client.find_global(GlobalInterface::interface_name());
+      protocol::Registry::GlobalEvent global =
+          co_await client.find_global(GlobalInterface::interface_name());
       ObjectId new_id = client.get_next_object_id();
       GlobalInterface interface =
           co_await use_resource(GlobalInterface::make(new_id, client.connection()));
@@ -56,4 +57,4 @@ template <class GlobalInterface> auto Client::bind() -> Observable<GlobalInterfa
   return BindObservable{*this};
 }
 
-} // namespace cw::protocol
+} // namespace cw

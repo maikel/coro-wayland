@@ -5,6 +5,18 @@
 
 #include "wayland/Client.hpp"
 
-namespace cw::protocol {
+namespace cw {
 
-}
+struct WindowBaseContext;
+
+class WindowBase {
+public:
+  static auto make(Client client) -> Observable<WindowBase>;
+
+private:
+  friend struct WindowBaseContext;
+  explicit WindowBase(WindowBaseContext& context) noexcept : mContext(&context) {}
+  WindowBaseContext* mContext;
+};
+
+} // namespace cw

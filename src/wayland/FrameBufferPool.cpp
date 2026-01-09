@@ -16,20 +16,20 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-namespace cw::protocol {
+namespace cw {
 
 struct FrameBufferPoolContext : ImmovableBase {
   Client mClient;
   Strand mStrand;
-  Shm mShm;
-  ShmPool mShmPool;
+  protocol::Shm mShm;
+  protocol::ShmPool mShmPool;
   FileDescriptor mShmPoolFd;
   std::size_t mWidth;
   std::size_t mHeight;
   std::optional<AsyncScope> mCurrentBufferScope;
   std::optional<std::stop_source> mCurrentBufferStopSource;
   std::span<std::uint32_t> mShmData;
-  std::array<Buffer, 2> mBuffers;
+  std::array<protocol::Buffer, 2> mBuffers;
   std::array<std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>, 2> mPixelViews;
 
   auto get_env() const noexcept {
@@ -107,19 +107,20 @@ struct FrameBufferPoolContext : ImmovableBase {
         mShmData.data() + mWidth * mHeight, std::dextents<std::size_t, 2>{mWidth, mHeight}};
 
     // create new shm pool and buffers
-    auto createBuffer1 = mShmPool.create_buffer(
-        0, narrow<int32_t>(mWidth), narrow<int32_t>(mHeight),
-        narrow<int32_t>(mWidth * sizeof(std::uint32_t)), std::to_underlying(Shm::Format::argb8888));
+    auto createBuffer1 =
+        mShmPool.create_buffer(0, narrow<int32_t>(mWidth), narrow<int32_t>(mHeight),
+                               narrow<int32_t>(mWidth * sizeof(std::uint32_t)),
+                               std::to_underlying(protocol::Shm::Format::argb8888));
 
     auto createBuffer2 = mShmPool.create_buffer(
         narrow<int32_t>(mWidth * mHeight * sizeof(std::uint32_t)), narrow<int32_t>(mWidth),
         narrow<int32_t>(mHeight), narrow<int32_t>(mWidth * sizeof(std::uint32_t)),
-        std::to_underlying(Shm::Format::argb8888));
+        std::to_underlying(protocol::Shm::Format::argb8888));
 
     auto queue = co_await use_resource(AsyncQueue<int>::make());
 
-    auto bufferSubscriber1 = [&](IoTask<Buffer> bufferTask) -> IoTask<void> {
-      Buffer buffer = co_await std::move(bufferTask);
+    auto bufferSubscriber1 = [&](IoTask<protocol::Buffer> bufferTask) -> IoTask<void> {
+      protocol::Buffer buffer = co_await std::move(bufferTask);
       Log::d("Created buffer 1");
       mBuffers[0] = buffer;
       co_await queue.push(0);
@@ -128,8 +129,8 @@ struct FrameBufferPoolContext : ImmovableBase {
       buffer.destroy();
     };
 
-    auto bufferSubscriber2 = [&](IoTask<Buffer> bufferTask) -> IoTask<void> {
-      Buffer buffer = co_await std::move(bufferTask);
+    auto bufferSubscriber2 = [&](IoTask<protocol::Buffer> bufferTask) -> IoTask<void> {
+      protocol::Buffer buffer = co_await std::move(bufferTask);
       mBuffers[1] = buffer;
       Log::d("Created buffer 2");
       co_await queue.push(1);
@@ -181,7 +182,7 @@ auto FrameBufferPool::make(Client client) -> Observable<FrameBufferPool> {
         -> IoTask<void> {
       Strand strand = co_await use_resource(Strand::make());
       FrameBufferPoolContext context(client, strand);
-      context.mShm = co_await use_resource(client.bind<Shm>());
+      context.mShm = co_await use_resource(client.bind<protocol::Shm>());
       context.mShmPool = co_await use_resource(context.mShm.create_pool(
           context.mShmPoolFd, narrow<int32_t>(context.mShmData.size_bytes())));
       co_await context.resize(Width{640}, Height{480});
@@ -206,4 +207,4 @@ auto FrameBufferPool::get_current_buffers() -> Observable<std::array<BufferView,
   return mContext->get_current_buffers();
 }
 
-} // namespace cw::protocol
+} // namespace cw

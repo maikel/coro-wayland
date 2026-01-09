@@ -12,12 +12,11 @@
 using namespace cw;
 
 auto coro_main() -> IoTask<void> {
-  protocol::Client client = co_await use_resource(protocol::Client::make());
-  protocol::FrameBufferPool frameBufferPool =
-      co_await use_resource(protocol::FrameBufferPool::make(client));
+  Client client = co_await use_resource(Client::make());
+  FrameBufferPool frameBufferPool = co_await use_resource(FrameBufferPool::make(client));
 
   co_await frameBufferPool.get_current_buffers().subscribe(
-      [&](IoTask<std::array<protocol::FrameBufferPool::BufferView, 2>> buffersTask) -> IoTask<void> {
+      [&](IoTask<std::array<FrameBufferPool::BufferView, 2>> buffersTask) -> IoTask<void> {
         auto buffers = co_await std::move(buffersTask);
         for (auto& bufferView : buffers) {
           Log::i("Got buffer with id {:04X}",
