@@ -83,6 +83,14 @@
             "program": "${workspaceFolder}/build/src/core/tests/test_async_scope",
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_async_channel",
+            "program": "${workspaceFolder}/build/src/core/tests/test_async_channel",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

@@ -25,7 +25,7 @@ auto coro_main() -> IoTask<void> {
         }
       });
 
-  co_await cw::when_stop_requested();
+  co_await when_stop_requested();
 }
 
 int main() { sync_wait(coro_main()); }

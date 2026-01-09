@@ -74,6 +74,7 @@ template <class AwaiterPromise> struct StoppedAsOptionalTask : ImmovableBase {
 
     void unhandled_stopped() noexcept {
       // Treat stopped as no result
+      std::coroutine_handle<promise_type>::from_promise(*this).resume();
     }
 
     auto get_env() const noexcept -> cw::env_of_t<AwaiterPromise> {

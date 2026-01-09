@@ -37,3 +37,7 @@ add_test(test_coro_guard test_coro_guard)
 add_executable(test_use_resource test_use_resource.cpp)
 target_link_libraries(test_use_resource MusicStreamer::Core)
 add_test(test_use_resource test_use_resource)
+
+add_executable(test_async_channel test_async_channel.cpp)
+target_link_libraries(test_async_channel MusicStreamer::Core)
+add_test(test_async_channel test_async_channel)
