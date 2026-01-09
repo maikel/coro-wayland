@@ -12,8 +12,7 @@
 
 namespace ms {
 
-  template <class KeyT, class ValueT>
-class AsyncUnorderedMapHandle;
+template <class KeyT, class ValueT> class AsyncUnorderedMapHandle;
 
 template <class KeyT, class ValueT> class AsyncUnorderedMap : ImmovableBase {
 public:
@@ -152,8 +151,7 @@ auto make_async_unordered_map() -> Observable<AsyncUnorderedMapHandle<KeyT, Valu
 }
 
 template <class KeyT, class ValueT>
-auto AsyncUnorderedMap<KeyT, ValueT>::make()
-    -> Observable<AsyncUnorderedMapHandle<KeyT, ValueT>> {
+auto AsyncUnorderedMap<KeyT, ValueT>::make() -> Observable<AsyncUnorderedMapHandle<KeyT, ValueT>> {
   return make_async_unordered_map<KeyT, ValueT>();
 }
 

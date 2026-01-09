@@ -38,22 +38,6 @@ private:
   std::vector<std::coroutine_handle<TaskPromise<Tp, TaskTraits>>> mWaiters;
 };
 
-template <class Tp> class AsyncQueueHandle {
-public:
-  explicit AsyncQueueHandle(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
-
-  template <class... Args>
-    requires std::constructible_from<Tp, Args...>
-  auto push(Args&&... args) {
-    return mQueue->push(std::forward<Args>(args)...);
-  }
-
-  auto pop() { return mQueue->pop(); }
-
-private:
-  AsyncQueue<Tp>* mQueue;
-};
-
 template <class Tp> class AsyncQueueObservable {
 public:
   explicit AsyncQueueObservable(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
@@ -77,6 +61,26 @@ private:
 template <class Tp> auto as_observable(AsyncQueue<Tp>& queue) noexcept -> AsyncQueueObservable<Tp> {
   return AsyncQueueObservable<Tp>(queue);
 }
+
+template <class Tp> class AsyncQueueHandle {
+public:
+  explicit AsyncQueueHandle(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
+
+  template <class... Args>
+    requires std::constructible_from<Tp, Args...>
+  auto push(Args&&... args) {
+    return mQueue->push(std::forward<Args>(args)...);
+  }
+
+  auto pop() { return mQueue->pop(); }
+
+  auto observable() noexcept -> AsyncQueueObservable<Tp> {
+    return AsyncQueueObservable<Tp>{*mQueue};
+  }
+
+private:
+  AsyncQueue<Tp>* mQueue;
+};
 
 template <class Tp>
 AsyncQueue<Tp>::AsyncQueue(IoScheduler scheduler) noexcept : mScheduler(std::move(scheduler)){};

@@ -28,6 +28,7 @@ add_custom_command(
 
 add_library(MusicStreamer_Wayland
   Connection.cpp
+  Client.cpp
   ${CMAKE_BINARY_DIR}/generated/protocol.cpp
   ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp)
 target_include_directories(MusicStreamer_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
@@ -36,3 +37,6 @@ add_library(MusicStreamer::Wayland ALIAS MusicStreamer_Wayland)
 
 add_executable(wayland_app wayland_app.cpp)
 target_link_libraries(wayland_app MusicStreamer::Wayland)
+
+add_executable(wayland_app2 wayland_app2.cpp)
+target_link_libraries(wayland_app2 MusicStreamer::Wayland)

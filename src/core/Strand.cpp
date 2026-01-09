@@ -80,7 +80,8 @@ auto Strand::lock() -> Observable<void> {
   struct LockObservable {
     StrandContext* mContext;
 
-    auto subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver) const noexcept -> IoTask<void> {
+    auto subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver) const noexcept
+        -> IoTask<void> {
       return lockSubscribe(*mContext, std::move(receiver));
     }
   };
