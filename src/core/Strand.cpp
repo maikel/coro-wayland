@@ -88,4 +88,6 @@ auto Strand::lock() -> Observable<void> {
   return LockObservable{mContext};
 }
 
+auto Strand::get_scheduler() const noexcept -> IoScheduler { return mContext->mScheduler; }
+
 } // namespace ms

@@ -15,6 +15,8 @@ public:
 
   auto lock() -> Observable<void>;
 
+  auto get_scheduler() const noexcept -> IoScheduler;
+
 private:
   explicit Strand(StrandContext& context) noexcept : mContext(&context) {}
   StrandContext* mContext;

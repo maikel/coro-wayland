@@ -10,8 +10,7 @@
 #include <stop_token>
 
 namespace ms {
-
-struct WhenStopRequestedAwaiter {
+template <class AwaitingPromise> struct WhenStopRequestedAwaiter {
   WhenStopRequestedAwaiter() = default;
 
   static auto await_ready() noexcept -> std::false_type { return {}; }
@@ -40,7 +39,15 @@ struct WhenStopRequestedAwaiter {
   std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
 };
 
-auto when_stop_requested() -> WhenStopRequestedAwaiter { return WhenStopRequestedAwaiter{}; }
+struct WhenStopRequestedSender {
+  template <class AwaitingPromise>
+  auto connect(AwaitingPromise& /* promise */) const noexcept
+      -> WhenStopRequestedAwaiter<AwaitingPromise> {
+    return WhenStopRequestedAwaiter<AwaitingPromise>{};
+  }
+};
+
+inline auto when_stop_requested() -> WhenStopRequestedSender { return WhenStopRequestedSender{}; }
 
 template <class Fn> auto upon_stop_requested(Fn fn) -> Task<void> {
   co_await when_stop_requested();

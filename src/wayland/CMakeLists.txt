@@ -29,6 +29,7 @@ add_custom_command(
 add_library(MusicStreamer_Wayland
   Connection.cpp
   Client.cpp
+  FrameBufferPool.cpp
   ${CMAKE_BINARY_DIR}/generated/protocol.cpp
   ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp)
 target_include_directories(MusicStreamer_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
