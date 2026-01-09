@@ -5,7 +5,10 @@
 #include "sync_wait.hpp"
 #include "wayland/Client.hpp"
 #include "wayland/FrameBufferPool.hpp"
+#include "wayland/WindowSurface.hpp"
 #include "when_stop_requested.hpp"
+
+#include "narrow.hpp"
 
 #include "Logging.hpp"
 
@@ -14,18 +17,20 @@ using namespace cw;
 auto coro_main() -> IoTask<void> {
   Client client = co_await use_resource(Client::make());
   FrameBufferPool frameBufferPool = co_await use_resource(FrameBufferPool::make(client));
+  WindowSurface windowSurface = co_await use_resource(WindowSurface::make(client));
 
-  co_await frameBufferPool.get_current_buffers().subscribe(
-      [&](IoTask<std::array<FrameBufferPool::BufferView, 2>> buffersTask) -> IoTask<void> {
-        auto buffers = co_await std::move(buffersTask);
-        for (auto& bufferView : buffers) {
-          Log::i("Got buffer with id {:04X}",
-                 std::to_underlying(bufferView.buffer.get_object_id()));
-          Log::i("Buffer size: {}x{}", bufferView.pixels.extent(0), bufferView.pixels.extent(1));
-        }
+  Log::i("Wayland resources acquired successfully.");
+  auto configureFrameBuffer = windowSurface.configure_events().subscribe(
+      [&](IoTask<protocol::XdgToplevel::ConfigureEvent> eventTask) -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        Log::i("Received WindowSurface::ConfigureEvent with size {}x{}", event.width, event.height);
+        co_await frameBufferPool.resize(Width{narrow<std::size_t>(event.width)},
+                                        Height{narrow<std::size_t>(event.height)});
+        Log::i("Resized FrameBufferPool to {}x{}", event.width, event.height);
+        windowSurface.attach(frameBufferPool.get_current_buffers()[0].buffer, 0, 0);
       });
 
-  co_await when_stop_requested();
+  co_await std::move(configureFrameBuffer);
 }
 
 int main() { sync_wait(coro_main()); }

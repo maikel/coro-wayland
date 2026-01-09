@@ -15,6 +15,14 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Launch wayland_app2",
+            "program": "${workspaceFolder}/build/src/wayland/wayland_app2",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Launch Code Generator",
             "program": "${workspaceFolder}/build/src/code_generator/code_generator",
             "args": ["<", "src/wayland/src/protocol.hpp.in"],

@@ -66,6 +66,8 @@ template <class Tp> class AsyncQueueHandle {
 public:
   explicit AsyncQueueHandle(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
 
+  static auto make() -> Observable<AsyncQueueHandle<Tp>>;
+
   template <class... Args>
     requires std::constructible_from<Tp, Args...>
   auto push(Args&&... args) {
@@ -167,6 +169,10 @@ template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueueHandle<T
     }
   };
   return MakeObservable{};
+}
+
+template <class Tp> auto AsyncQueueHandle<Tp>::make() -> Observable<AsyncQueueHandle<Tp>> {
+  return AsyncQueue<Tp>::make();
 }
 
 } // namespace cw

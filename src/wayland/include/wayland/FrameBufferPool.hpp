@@ -25,7 +25,7 @@ public:
     std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> pixels;
   };
 
-  auto get_current_buffers() -> Observable<std::array<BufferView, 2>>;
+  auto get_current_buffers() -> std::array<BufferView, 2>;
 
 private:
   friend struct FrameBufferPoolContext;

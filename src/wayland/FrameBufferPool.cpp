@@ -19,6 +19,9 @@
 namespace cw {
 
 struct FrameBufferPoolContext : ImmovableBase {
+  static constexpr std::size_t kMinHeight = 640;
+  static constexpr std::size_t kMinWidth = 480;
+
   Client mClient;
   Strand mStrand;
   protocol::Shm mShm;
@@ -84,8 +87,8 @@ struct FrameBufferPoolContext : ImmovableBase {
     }
 
     // resize shm pool and remap
-    auto newWidth = static_cast<std::size_t>(width);
-    auto newHeight = static_cast<std::size_t>(height);
+    auto newWidth = std::max(static_cast<std::size_t>(width), kMinWidth);
+    auto newHeight = std::max(static_cast<std::size_t>(height), kMinHeight);
     std::size_t newSize = newWidth * newHeight * sizeof(std::uint32_t) * 2;
     if (newSize > mShmData.size_bytes()) {
       if (::ftruncate(mShmPoolFd.native_handle(), narrow<off_t>(newSize)) == -1) {
@@ -148,28 +151,9 @@ struct FrameBufferPoolContext : ImmovableBase {
     co_await when_all(queue.pop(), queue.pop());
   }
 
-  auto get_current_buffers() -> Observable<std::array<FrameBufferPool::BufferView, 2>> {
-    struct BufferObservable {
-      FrameBufferPoolContext* mContext;
-
-      static auto do_subscribe(
-          FrameBufferPoolContext* context,
-          std::function<auto(IoTask<std::array<FrameBufferPool::BufferView, 2>>)->IoTask<void>>
-              receiver) -> IoTask<void> {
-        co_await use_resource(context->mStrand.lock());
-        std::array<FrameBufferPool::BufferView, 2> buffers;
-        buffers[0] = FrameBufferPool::BufferView{context->mBuffers[0], context->mPixelViews[0]};
-        buffers[1] = FrameBufferPool::BufferView{context->mBuffers[1], context->mPixelViews[1]};
-        co_await receiver(coro_just(buffers));
-      }
-
-      auto subscribe(
-          std::function<auto(IoTask<std::array<FrameBufferPool::BufferView, 2>>)->IoTask<void>>
-              receiver) const noexcept -> IoTask<void> {
-        return do_subscribe(mContext, std::move(receiver));
-      }
-    };
-    return BufferObservable{this};
+  auto get_current_buffers() -> std::array<FrameBufferPool::BufferView, 2> {
+    return {FrameBufferPool::BufferView{mBuffers[0], mPixelViews[0]},
+            FrameBufferPool::BufferView{mBuffers[1], mPixelViews[1]}};
   }
 };
 
@@ -203,7 +187,7 @@ auto FrameBufferPool::resize(Width width, Height height) -> IoTask<void> {
   return mContext->resize(width, height);
 }
 
-auto FrameBufferPool::get_current_buffers() -> Observable<std::array<BufferView, 2>> {
+auto FrameBufferPool::get_current_buffers() -> std::array<BufferView, 2> {
   return mContext->get_current_buffers();
 }
 

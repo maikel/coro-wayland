@@ -67,19 +67,19 @@ template <class ValueT> auto AsyncChannel<ValueT>::send(ValueT value) -> IoTask<
     } else {
       self.mContext->mValue.emplace(std::move(value));
     }
-    if (auto receiver = std::exchange(self.mContext->mContinuation, nullptr); receiver) {
-      receiver.resume();
-    } else {
-      struct SendAwaitable : ImmovableBase {
-        static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
-        auto await_suspend(std::coroutine_handle<> handle) noexcept -> void {
-          self.mContext->mContinuation = handle;
+    struct SendAwaitable : ImmovableBase {
+      static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
+      auto await_suspend(std::coroutine_handle<> handle) noexcept -> std::coroutine_handle<> {
+        if (auto receiver = std::exchange(self.mContext->mContinuation, handle); receiver) {
+          return receiver;
         }
-        auto await_resume() noexcept -> void {}
-        AsyncChannel<ValueT> self;
-      };
-      co_await SendAwaitable{{}, self};
-    }
+        return std::noop_coroutine();
+      }
+      auto await_resume() noexcept -> void {}
+      AsyncChannel<ValueT> self;
+    };
+    co_await SendAwaitable{{}, self};
+    
   }(*this, std::move(value)));
 }
 
@@ -94,10 +94,9 @@ template <class ValueT> auto AsyncChannel<ValueT>::receive() -> Observable<Value
         if (self.mContext->mValue.has_value()) {
           ValueT value = std::move(self.mContext->mValue).value();
           self.mContext->mValue.reset();
+          auto sender = std::exchange(self.mContext->mContinuation, nullptr);
           co_await receiver(coro_just<ValueT>(std::move(value)));
           co_await self.mContext->mScheduler.schedule();
-        }
-        if (auto sender = std::exchange(self.mContext->mContinuation, nullptr); sender) {
           sender.resume();
         } else {
           struct ReceiveAwaitable : ImmovableBase {

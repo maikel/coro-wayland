@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2025 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "wayland/Client.hpp"
+
+#include "AsyncQueue.hpp"
 #include "AsyncUnorderedMap.hpp"
 #include "coro_just.hpp"
 #include "just_stopped.hpp"
@@ -112,19 +114,23 @@ public:
 
 auto Client::make() -> Observable<Client> { return MakeObserver{}; }
 
-auto Client::connection() -> Connection { return mContext->mConnection; }
+auto Client::connection() const -> Connection { return mContext->mConnection; }
 
-auto Client::events() -> Observable<protocol::Display::ErrorEvent> {
+auto Client::events() const -> Observable<protocol::Display::ErrorEvent> {
   return mContext->mErrorEvents.observable();
 }
 
-auto Client::get_next_object_id() -> ObjectId { return mContext->mConnection.get_next_object_id(); }
+auto Client::get_next_object_id() const -> ObjectId {
+  return mContext->mConnection.get_next_object_id();
+}
 
-auto Client::find_global(std::string_view interface) -> IoTask<protocol::Registry::GlobalEvent> {
+auto Client::find_global(std::string_view interface) const
+    -> IoTask<protocol::Registry::GlobalEvent> {
   co_return co_await mContext->mGlobals.wait_for(std::string{interface});
 }
 
-auto Client::bind_global(const protocol::Registry::GlobalEvent& global, ObjectId new_id) -> void {
+auto Client::bind_global(const protocol::Registry::GlobalEvent& global, ObjectId new_id) const
+    -> void {
   mContext->mRegistry.bind(global.name, global.interface, global.version, new_id);
 }
 

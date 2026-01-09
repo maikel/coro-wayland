@@ -16,23 +16,23 @@ class Client {
 public:
   static auto make() -> Observable<Client>;
 
-  template <class GlobalInterface> auto bind() -> Observable<GlobalInterface>;
+  template <class GlobalInterface> auto bind() const -> Observable<GlobalInterface>;
 
-  auto connection() -> Connection;
+  auto connection() const -> Connection;
 
-  auto events() -> Observable<protocol::Display::ErrorEvent>;
+  auto events() const -> Observable<protocol::Display::ErrorEvent>;
 
 private:
-  auto get_next_object_id() -> ObjectId;
-  auto find_global(std::string_view interface) -> IoTask<protocol::Registry::GlobalEvent>;
-  auto bind_global(const protocol::Registry::GlobalEvent& global, ObjectId new_id) -> void;
+  auto get_next_object_id() const -> ObjectId;
+  auto find_global(std::string_view interface) const -> IoTask<protocol::Registry::GlobalEvent>;
+  auto bind_global(const protocol::Registry::GlobalEvent& global, ObjectId new_id) const -> void;
 
   friend struct ClientContext;
   explicit Client(ClientContext& context) noexcept : mContext(&context) {}
   ClientContext* mContext;
 };
 
-template <class GlobalInterface> auto Client::bind() -> Observable<GlobalInterface> {
+template <class GlobalInterface> auto Client::bind() const -> Observable<GlobalInterface> {
   struct BindObservable {
     static auto do_subscribe(Client client,
                              std::function<auto(IoTask<GlobalInterface>)->IoTask<void>> receiver)

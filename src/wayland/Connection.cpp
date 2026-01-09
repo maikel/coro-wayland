@@ -252,6 +252,8 @@ private:
         } catch (...) {
           Log::e("Unknown exception while handling message");
         }
+      } else {
+        Log::w("No proxy found for ObjectId {}, message ignored", objectId);
       }
       std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
       bytesRead -= messageLength;
