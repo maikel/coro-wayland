@@ -89,25 +89,8 @@ public:
     IoTask<void> errorEventTask = display.events().subscribe(displaySubscriber);
     IoTask<void> registryEventTask = registry.events().subscribe(registrySubscriber);
     Client client = context.get_client();
-    auto downstreamTask = when_any(receiver(coro_just(client)), std::move(errorEventTask),
+    co_await when_any(receiver(coro_just(client)), std::move(errorEventTask),
                                    std::move(registryEventTask));
-
-    std::exception_ptr exception = nullptr;
-    bool stopped = false;
-    try {
-      stopped = !(co_await cw::stopped_as_optional(std::move(downstreamTask))).has_value();
-    } catch (...) {
-      Log::e("Caught exception in wayland::Client");
-      exception = std::current_exception();
-    }
-    if (stopped) {
-      Log::d("wayland::Client was stopped.");
-      co_await cw::just_stopped();
-    }
-    if (exception) {
-      std::rethrow_exception(exception);
-    }
-    Log::d("wayland::Client completed.");
   }
 };
 } // namespace

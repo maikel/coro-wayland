@@ -10,6 +10,7 @@
 
 #include "Logging.hpp"
 
+#include <algorithm>
 #include <system_error>
 
 #include <linux/memfd.h>
@@ -19,8 +20,8 @@
 namespace cw {
 
 struct FrameBufferPoolContext : ImmovableBase {
-  static constexpr std::size_t kMinHeight = 640;
-  static constexpr std::size_t kMinWidth = 480;
+  static constexpr std::size_t kMinHeight = 480;
+  static constexpr std::size_t kMinWidth = 640;
 
   Client mClient;
   Strand mStrand;
@@ -101,6 +102,7 @@ struct FrameBufferPoolContext : ImmovableBase {
       mShmData = std::span<std::uint32_t>(static_cast<std::uint32_t*>(mapped),
                                           newSize / sizeof(std::uint32_t));
       mShmPool.resize(narrow<int32_t>(newSize));
+      std::fill(mShmData.begin(), mShmData.end(), 0xff000000);
     }
     mWidth = newWidth;
     mHeight = newHeight;

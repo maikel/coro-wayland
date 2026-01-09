@@ -22,17 +22,13 @@ void AsyncScope::CloseAwaitable::await_resume() noexcept {}
 auto AsyncScope::close() noexcept -> CloseAwaitable { return CloseAwaitable{*this}; }
 
 struct AsyncScopeObservable {
-  AsyncScopeObservable() = default;
-
   template <class Receiver> auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
     AsyncScope scope;
-    auto task = [](AsyncScope* scope) -> IoTask<AsyncScopeHandle> {
-      co_return AsyncScopeHandle{*scope};
-    }(&scope);
     bool stopped = false;
     std::exception_ptr exception = nullptr;
     try {
-      stopped = !(co_await cw::stopped_as_optional(receiver(std::move(task)))).has_value();
+      AsyncScopeHandle handle{scope};
+      stopped = !(co_await cw::stopped_as_optional(receiver(coro_just(handle)))).has_value();
     } catch (...) {
       exception = std::current_exception();
     }

@@ -143,8 +143,8 @@ auto create_window(
   scope.spawn(std::move(handleConfigureEvents), env);
   scope.spawn(std::move(handlePingEvents), env);
 
-  xdgToplevel.set_title("MusicStreamer Wayland Window");
-  xdgToplevel.set_app_id("musicstreamer_wayland_example");
+  xdgToplevel.set_title("CoroWayland Wayland Window");
+  xdgToplevel.set_app_id("CoroWayland_wayland_example");
   xdgToplevel.set_maximized();
 
   app.surface.attach(app.buffer1, 0, 0);

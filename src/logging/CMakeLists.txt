@@ -1,3 +1,3 @@
-add_library(MusicStreamer_logging Logging.cpp)
-target_include_directories(MusicStreamer_logging PUBLIC include)
-add_library(MusicStreamer::logging ALIAS MusicStreamer_logging)
+add_library(CoroWayland_logging Logging.cpp)
+target_include_directories(CoroWayland_logging PUBLIC include)
+add_library(CoroWayland::logging ALIAS CoroWayland_logging)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(MusicStreamer LANGUAGES CXX)
+project(CoroWayland LANGUAGES CXX)
 
 option(MS_BUILD_TESTING "Build test executables" ON)
 if (MS_BUILD_TESTING)

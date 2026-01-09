@@ -26,19 +26,19 @@ add_custom_command(
   DEPENDS code_generator protocol.hpp.in protocol.cpp.in
 )
 
-add_library(MusicStreamer_Wayland
+add_library(CoroWayland_Wayland
   Connection.cpp
   Client.cpp
   FrameBufferPool.cpp
   WindowSurface.cpp
   ${CMAKE_BINARY_DIR}/generated/protocol.cpp
   ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp)
-target_include_directories(MusicStreamer_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
-target_link_libraries(MusicStreamer_Wayland PUBLIC MusicStreamer::Core MusicStreamer::logging)
-add_library(MusicStreamer::Wayland ALIAS MusicStreamer_Wayland)
+target_include_directories(CoroWayland_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
+target_link_libraries(CoroWayland_Wayland PUBLIC CoroWayland::Core CoroWayland::logging)
+add_library(CoroWayland::Wayland ALIAS CoroWayland_Wayland)
 
 add_executable(wayland_app wayland_app.cpp)
-target_link_libraries(wayland_app MusicStreamer::Wayland)
+target_link_libraries(wayland_app CoroWayland::Wayland)
 
 add_executable(wayland_app2 wayland_app2.cpp)
-target_link_libraries(wayland_app2 MusicStreamer::Wayland)
+target_link_libraries(wayland_app2 CoroWayland::Wayland)
