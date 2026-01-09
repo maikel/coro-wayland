@@ -5,6 +5,6 @@
 
 #include "wayland/Client.hpp"
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 }

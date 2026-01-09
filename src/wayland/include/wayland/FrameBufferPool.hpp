@@ -7,7 +7,7 @@
 
 #include <mdspan>
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 struct FrameBufferPoolContext;
 
@@ -33,4 +33,4 @@ private:
   FrameBufferPoolContext* mContext;
 };
 
-} // namespace cw::wayland
+} // namespace cw::protocol

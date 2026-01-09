@@ -11,14 +11,14 @@
 
 #include "Logging.hpp"
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 struct ClientContext {
   Connection mConnection;
   Display mDisplay;
   Registry mRegistry;
   AsyncUnorderedMapHandle<std::string, Registry::GlobalEvent> mGlobals;
-  AsyncQueueHandle<wayland::Display::ErrorEvent> mErrorEvents;
+  AsyncQueueHandle<Display::ErrorEvent> mErrorEvents;
 
   auto get_client() -> Client { return Client{*this}; }
 };
@@ -33,7 +33,7 @@ public:
     Registry registry = co_await use_resource(display.get_registry());
     auto globals =
         co_await use_resource(AsyncUnorderedMap<std::string, Registry::GlobalEvent>::make());
-    auto errorEvents = co_await use_resource(AsyncQueue<wayland::Display::ErrorEvent>::make());
+    auto errorEvents = co_await use_resource(AsyncQueue<Display::ErrorEvent>::make());
 
     ClientContext context{connection, display, registry, globals, errorEvents};
 
@@ -44,14 +44,14 @@ public:
           co_await std::move(eventTask);
       switch (event.index()) {
       case Display::ErrorEvent::index: {
-        wayland::Display::ErrorEvent errorEvent = std::get<Display::ErrorEvent>(event);
+        Display::ErrorEvent errorEvent = std::get<Display::ErrorEvent>(event);
         Log::e("Wayland Display Error: object_id={:04X}, code={}, message=\"{}\"",
                std::to_underlying(errorEvent.object_id), errorEvent.code, errorEvent.message);
         co_await errorEvents.push(std::move(errorEvent));
         break;
       }
       case Display::DeleteIdEvent::index: {
-        wayland::Display::DeleteIdEvent deleteIdEvent = std::get<Display::DeleteIdEvent>(event);
+        Display::DeleteIdEvent deleteIdEvent = std::get<Display::DeleteIdEvent>(event);
         Log::d("Wayland Display Delete ID Event: id={}", deleteIdEvent.id);
         break;
       }
@@ -110,7 +110,7 @@ auto Client::make() -> Observable<Client> { return MakeObserver{}; }
 
 auto Client::connection() -> Connection { return mContext->mConnection; }
 
-auto Client::events() -> Observable<wayland::Display::ErrorEvent> {
+auto Client::events() -> Observable<Display::ErrorEvent> {
   return mContext->mErrorEvents.observable();
 }
 
@@ -124,4 +124,4 @@ auto Client::bind_global(const Registry::GlobalEvent& global, ObjectId new_id) -
   mContext->mRegistry.bind(global.name, global.interface, global.version, new_id);
 }
 
-} // namespace cw::wayland
+} // namespace cw::protocol

@@ -16,7 +16,7 @@
 
 #include <sys/socket.h>
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 enum class ObjectId : std::uint32_t {
   Display = 1,
@@ -204,4 +204,4 @@ auto ProxyInterface::read_message(std::span<const char> buffer, Args&... args) -
   return mHandle.read_message(buffer, args...);
 }
 
-} // namespace cw::wayland
+} // namespace cw::protocol

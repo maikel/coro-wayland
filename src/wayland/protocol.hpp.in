@@ -20,7 +20,7 @@
 #include <string_view>
 #include <variant>
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 {% for interface in interfaces %}struct {{ interface.cppname }}Context;
 {% endfor %}
@@ -41,7 +41,7 @@ public:
 
   ~{{ interface.cppname }}();
 
-  static auto make(ObjectId objectId, Connection connection, std::function<void()> syncInit = nullptr) -> Observable<{{ interface.cppname }}>;
+  static auto make(cw::protocol::ObjectId objectId, cw::protocol::Connection connection, std::function<void()> syncInit = nullptr) -> cw::Observable<{{ interface.cppname }}>;
 
 {% for entry in interface.enums %}
 {% if entry.description %}/** @brief {{ entry.description }} */{% endif %}
@@ -53,17 +53,17 @@ public:
 {% for event in interface.events %}struct {{ event.cppname }};
 {% endfor %}
 {% if interface.events %}
-  auto events() const -> Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>>;
+  auto events() const -> cw::Observable<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ event.cppname }}{% endfor %}>>;
 {% endif %}
 
 {% for request in interface.requests %}
   {% if request.description %}/** @brief {{ request.description }} */{% endif %}
   {% if request.return_type %}auto{% else %}void{% endif %}
   {{ request.name }}({% for arg in request.args %}{% if arg.__tail %}, {% endif %}{{arg.type}} {{arg.name}}{% endfor %})
-  const{% if request.return_type %}-> Observable<{{ request.return_type }}>{% endif %};
+  const{% if request.return_type %}-> cw::Observable<{{ request.return_type }}>{% endif %};
 {% endfor %}
 
-  auto get_object_id() const noexcept -> ObjectId;
+  auto get_object_id() const noexcept -> cw::protocol::ObjectId;
 
 private:
   friend class Connection;

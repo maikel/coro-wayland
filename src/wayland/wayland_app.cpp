@@ -49,7 +49,7 @@ auto fill_shm_buffer(std::mdspan<uint32_t, std::dextents<std::size_t, 2>> buffer
 }
 
 struct ApplicationState {
-  explicit ApplicationState(wayland::Connection conn) : connection(conn) {
+  explicit ApplicationState(protocol::Connection conn) : connection(conn) {
     const int width = 1920, height = 1080;
     const int stride = width * 4;
     const int shm_pool_size = height * stride * 2;
@@ -69,15 +69,15 @@ struct ApplicationState {
     fill_shm_buffer(mShmBuffer2, 0xff00ff00);
   }
 
-  wayland::Connection connection;
-  wayland::Display display;
-  wayland::Registry registry;
-  wayland::Compositor compositor;
-  wayland::Surface surface;
-  wayland::Shm shm;
-  wayland::ShmPool shmPool;
-  wayland::Buffer buffer1;
-  wayland::Buffer buffer2;
+  protocol::Connection connection;
+  protocol::Display display;
+  protocol::Registry registry;
+  protocol::Compositor compositor;
+  protocol::Surface surface;
+  protocol::Shm shm;
+  protocol::ShmPool shmPool;
+  protocol::Buffer buffer1;
+  protocol::Buffer buffer2;
   FileDescriptor shmFd;
   std::span<char> shmData;
   std::mdspan<uint32_t, std::dextents<std::size_t, 2>> mShmBuffer1;
@@ -86,33 +86,33 @@ struct ApplicationState {
 
 auto create_window(
     ApplicationState& app,
-    AsyncUnorderedMapHandle<std::string, wayland::Registry::GlobalEvent> nameFromInterface)
+    AsyncUnorderedMapHandle<std::string, protocol::Registry::GlobalEvent> nameFromInterface)
     -> IoTask<void> {
-  auto compositorEvent = co_await nameFromInterface.wait_for(wayland::Compositor::interface_name());
-  auto shmEvent = co_await nameFromInterface.wait_for(wayland::Shm::interface_name());
-  auto xdgEvent = co_await nameFromInterface.wait_for(wayland::XdgWmBase::interface_name());
+  auto compositorEvent = co_await nameFromInterface.wait_for(protocol::Compositor::interface_name());
+  auto shmEvent = co_await nameFromInterface.wait_for(protocol::Shm::interface_name());
+  auto xdgEvent = co_await nameFromInterface.wait_for(protocol::XdgWmBase::interface_name());
   auto compositorObjectId = app.connection.get_next_object_id();
   app.compositor =
-      co_await use_resource(wayland::Compositor::make(compositorObjectId, app.connection));
+      co_await use_resource(protocol::Compositor::make(compositorObjectId, app.connection));
   app.registry.bind(compositorEvent.name, compositorEvent.interface, compositorEvent.version,
                     compositorObjectId);
   app.surface = co_await use_resource(app.compositor.create_surface());
   auto shmObjectId = app.connection.get_next_object_id();
-  app.shm = co_await use_resource(wayland::Shm::make(shmObjectId, app.connection));
+  app.shm = co_await use_resource(protocol::Shm::make(shmObjectId, app.connection));
   app.registry.bind(shmEvent.name, shmEvent.interface, shmEvent.version, shmObjectId);
   app.shmPool = co_await use_resource(
       app.shm.create_pool(app.shmFd, static_cast<std::int32_t>(app.shmData.size())));
   app.buffer1 = co_await use_resource(app.shmPool.create_buffer(
-      0, 1920, 1080, 1920 * 4, static_cast<uint32_t>(wayland::Shm::Format::xrgb8888)));
+      0, 1920, 1080, 1920 * 4, static_cast<uint32_t>(protocol::Shm::Format::xrgb8888)));
   app.buffer2 = co_await use_resource(
       app.shmPool.create_buffer(1920 * 1080 * 4, 1920, 1080, 1920 * 4,
-                                static_cast<uint32_t>(wayland::Shm::Format::xrgb8888)));
+                                static_cast<uint32_t>(protocol::Shm::Format::xrgb8888)));
 
-  wayland::XdgWmBase xdgWmBase = co_await use_resource(
-      wayland::XdgWmBase::make(app.connection.get_next_object_id(), app.connection));
+  protocol::XdgWmBase xdgWmBase = co_await use_resource(
+      protocol::XdgWmBase::make(app.connection.get_next_object_id(), app.connection));
   app.registry.bind(xdgEvent.name, xdgEvent.interface, xdgEvent.version, xdgWmBase.get_object_id());
-  wayland::XdgSurface xdgSurface = co_await use_resource(xdgWmBase.get_xdg_surface(app.surface));
-  wayland::XdgToplevel xdgToplevel = co_await use_resource(xdgSurface.get_toplevel());
+  protocol::XdgSurface xdgSurface = co_await use_resource(xdgWmBase.get_xdg_surface(app.surface));
+  protocol::XdgToplevel xdgToplevel = co_await use_resource(xdgSurface.get_toplevel());
   AsyncScopeHandle scope = co_await use_resource(create_scope());
 
   auto env = co_await read_env([](auto x) { return x; });
@@ -120,8 +120,8 @@ auto create_window(
       xdgSurface.events().subscribe([&](auto eventTask) noexcept -> IoTask<void> {
         auto event = co_await std::move(eventTask);
         switch (event.index()) {
-        case wayland::XdgSurface::ConfigureEvent::index: {
-          const auto configureEvent = std::get<wayland::XdgSurface::ConfigureEvent>(event);
+        case protocol::XdgSurface::ConfigureEvent::index: {
+          const auto configureEvent = std::get<protocol::XdgSurface::ConfigureEvent>(event);
           Log::i("Received configure event with serial {}", configureEvent.serial);
           xdgSurface.ack_configure(configureEvent.serial);
           co_return;
@@ -132,8 +132,8 @@ auto create_window(
       xdgWmBase.events().subscribe([&](auto eventTask) noexcept -> IoTask<void> {
         auto event = co_await std::move(eventTask);
         switch (event.index()) {
-        case wayland::XdgWmBase::PingEvent::index: {
-          const auto pingEvent = std::get<wayland::XdgWmBase::PingEvent>(event);
+        case protocol::XdgWmBase::PingEvent::index: {
+          const auto pingEvent = std::get<protocol::XdgWmBase::PingEvent>(event);
           xdgWmBase.pong(pingEvent.serial);
           break;
         }
@@ -151,7 +151,7 @@ auto create_window(
   app.surface.commit();
 
   int activeBuffer = 0;
-  wayland::Buffer buffers[2]{app.buffer1, app.buffer2};
+  protocol::Buffer buffers[2]{app.buffer1, app.buffer2};
   while (true) {
     co_await app.connection.get_scheduler().schedule_after(std::chrono::seconds(1));
     Log::i("Swapping buffer to display color {}", activeBuffer == 0 ? "green" : "blue");
@@ -163,25 +163,25 @@ auto create_window(
 }
 
 auto coro_main() -> IoTask<void> {
-  wayland::Connection connection = co_await use_resource(wayland::Connection::make());
+  protocol::Connection connection = co_await use_resource(protocol::Connection::make());
   ApplicationState app{connection};
   app.display =
-      co_await use_resource(wayland::Display::make(wayland::ObjectId::Display, app.connection));
+      co_await use_resource(protocol::Display::make(protocol::ObjectId::Display, app.connection));
   app.registry = co_await use_resource(app.display.get_registry());
   auto nameFromInterface = co_await use_resource(
-      make_async_unordered_map<std::string, wayland::Registry::GlobalEvent>());
+      make_async_unordered_map<std::string, protocol::Registry::GlobalEvent>());
   auto handleEvents = app.registry.events().subscribe([&](auto eventTask) noexcept -> IoTask<void> {
     auto event = co_await std::move(eventTask);
     switch (event.index()) {
-    case wayland::Registry::GlobalEvent::index: {
-      const auto globalEvent = std::get<wayland::Registry::GlobalEvent>(event);
+    case protocol::Registry::GlobalEvent::index: {
+      const auto globalEvent = std::get<protocol::Registry::GlobalEvent>(event);
       Log::i("Global added: name={}, interface={}, version={}", globalEvent.name,
              globalEvent.interface, globalEvent.version);
       co_await nameFromInterface.emplace(globalEvent.interface, globalEvent);
       break;
     }
-    case wayland::Registry::GlobalRemoveEvent::index: {
-      const auto removeEvent = std::get<wayland::Registry::GlobalRemoveEvent>(event);
+    case protocol::Registry::GlobalRemoveEvent::index: {
+      const auto removeEvent = std::get<protocol::Registry::GlobalRemoveEvent>(event);
       Log::i("Global removed: name={}", removeEvent.name);
       break;
     }

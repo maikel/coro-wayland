@@ -12,12 +12,12 @@
 using namespace cw;
 
 auto coro_main() -> IoTask<void> {
-  wayland::Client client = co_await use_resource(wayland::Client::make());
-  wayland::FrameBufferPool frameBufferPool =
-      co_await use_resource(wayland::FrameBufferPool::make(client));
+  protocol::Client client = co_await use_resource(protocol::Client::make());
+  protocol::FrameBufferPool frameBufferPool =
+      co_await use_resource(protocol::FrameBufferPool::make(client));
 
   co_await frameBufferPool.get_current_buffers().subscribe(
-      [&](IoTask<std::array<wayland::FrameBufferPool::BufferView, 2>> buffersTask) -> IoTask<void> {
+      [&](IoTask<std::array<protocol::FrameBufferPool::BufferView, 2>> buffersTask) -> IoTask<void> {
         auto buffers = co_await std::move(buffersTask);
         for (auto& bufferView : buffers) {
           Log::i("Got buffer with id {:04X}",

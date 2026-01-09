@@ -8,7 +8,7 @@
 #include "wayland/Connection.hpp"
 #include "wayland/protocol.hpp"
 
-namespace cw::wayland {
+namespace cw::protocol {
 
 struct ClientContext;
 
@@ -20,7 +20,7 @@ public:
 
   auto connection() -> Connection;
 
-  auto events() -> Observable<wayland::Display::ErrorEvent>;
+  auto events() -> Observable<Display::ErrorEvent>;
 
 private:
   auto get_next_object_id() -> ObjectId;
@@ -56,4 +56,4 @@ template <class GlobalInterface> auto Client::bind() -> Observable<GlobalInterfa
   return BindObservable{*this};
 }
 
-} // namespace cw::wayland
+} // namespace cw::protocol
