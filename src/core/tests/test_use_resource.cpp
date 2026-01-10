@@ -4,6 +4,7 @@
 #include "observables/use_resource.hpp"
 
 //
+#include "coro_guard.hpp"
 #include "just_stopped.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
@@ -21,8 +22,8 @@ struct TestResource {
     return [](std::vector<int>* vec, int value, auto receiver) -> cw::IoTask<void> {
       cw::IoTask<int> task = [](int value) -> cw::IoTask<int> { co_return value; }(value);
       co_await coro_push_back(*vec, 2 * value - 1);
+      co_await coro_guard(coro_push_back(*vec, 2 * value));
       co_await receiver(std::move(task));
-      co_await coro_push_back(*vec, 2 * value);
     }(mVec, mValue, std::move(receiver));
   }
 
@@ -40,10 +41,23 @@ auto coro_use_resource(std::vector<int>& vec, int value) -> cw::IoTask<void> {
 }
 
 auto coro_use_resource_exception(std::vector<int>& vec, int value) -> cw::IoTask<void> {
-  cw::Observable<int> valueResource{TestResource{&vec, value}};
-  int val = co_await cw::use_resource(std::move(valueResource));
-  co_await coro_push_back(vec, val);
+  cw::Observable<int> valueResource1{TestResource{&vec, value + 1}};
+  cw::Observable<int> valueResource2{TestResource{&vec, value}};
+  int val1 = co_await cw::use_resource(std::move(valueResource1));
+  int val2 = co_await cw::use_resource(std::move(valueResource2));
+  co_await coro_push_back(vec, val1);
   throw std::runtime_error("Test exception");
+  co_await coro_push_back(vec, val2);
+}
+
+auto coro_use_resource_stopped(std::vector<int>& vec, int value) -> cw::IoTask<void> {
+  cw::Observable<int> valueResource1{TestResource{&vec, value + 1}};
+  cw::Observable<int> valueResource2{TestResource{&vec, value}};
+  int val1 = co_await cw::use_resource(std::move(valueResource1));
+  int val2 = co_await cw::use_resource(std::move(valueResource2));
+  co_await coro_push_back(vec, val1);
+  co_await cw::just_stopped();
+  co_await coro_push_back(vec, val2);
 }
 
 auto test_use_resource() -> void {
@@ -64,10 +78,18 @@ auto test_use_resource_exception() -> void {
     assert(std::string(e.what()) == "Test exception");
   }
   assert(exception_caught);
-  assert((vec == std::vector<int>{83, 42, 84}));
+  assert((vec == std::vector<int>{85, 83, 43, 84, 86}));
+}
+
+auto test_use_resource_stopped() -> void {
+  std::vector<int> vec{};
+  bool success = cw::sync_wait(coro_use_resource_stopped(vec, 42));
+  assert(!success);
+  assert((vec == std::vector<int>{85, 83, 43, 84, 86}));
 }
 
 int main() {
   test_use_resource();
   test_use_resource_exception();
+  test_use_resource_stopped();
 }

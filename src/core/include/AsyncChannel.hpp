@@ -42,7 +42,7 @@ public:
   IoScheduler mScheduler;
   AsyncScopeHandle mScope;
   std::optional<ValueT> mValue;
-  std::coroutine_handle<> mContinuation;
+  std::coroutine_handle<TaskPromise<void, IoTaskTraits>> mContinuation;
 };
 
 template <class ValueT> auto AsyncChannel<ValueT>::make() -> Observable<AsyncChannel<ValueT>> {
@@ -68,17 +68,38 @@ template <class ValueT> auto AsyncChannel<ValueT>::send(ValueT value) -> IoTask<
       self.mContext->mValue.emplace(std::move(value));
     }
     struct SendAwaitable : ImmovableBase {
+      struct OnStopRequested {
+        void operator()() noexcept try {
+          mAwaiter->self.mContext->mScope.spawn(
+              [](AsyncChannel<ValueT> self,
+                 std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) -> Task<void> {
+                co_await self.mContext->mScheduler.schedule();
+                if (self.mContext->mContinuation == handle) {
+                  self.mContext->mContinuation = nullptr;
+                  handle.promise().unhandled_stopped();
+                }
+              }(mAwaiter->self, mAwaiter->mHandle));
+        } catch (...) {
+          // Swallow exceptions here
+        }
+        SendAwaitable* mAwaiter;
+      };
       static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
-      auto await_suspend(std::coroutine_handle<> handle) noexcept -> std::coroutine_handle<> {
+      auto await_suspend(std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) noexcept
+          -> std::coroutine_handle<> {
+        mStopCallback.emplace(cw::get_stop_token(cw::get_env(handle.promise())),
+                              OnStopRequested{this});
         if (auto receiver = std::exchange(self.mContext->mContinuation, handle); receiver) {
           return receiver;
         }
         return std::noop_coroutine();
       }
-      auto await_resume() noexcept -> void {}
+      auto await_resume() noexcept -> void { mStopCallback.reset(); }
       AsyncChannel<ValueT> self;
+      std::coroutine_handle<TaskPromise<void, IoTaskTraits>> mHandle;
+      std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
     };
-    co_await SendAwaitable{{}, self};
+    co_await SendAwaitable{{}, self, nullptr, std::nullopt};
   }(*this, std::move(value)));
 }
 
@@ -94,19 +115,59 @@ template <class ValueT> auto AsyncChannel<ValueT>::receive() -> Observable<Value
           ValueT value = std::move(self.mContext->mValue).value();
           self.mContext->mValue.reset();
           auto sender = std::exchange(self.mContext->mContinuation, nullptr);
-          co_await receiver(coro_just<ValueT>(std::move(value)));
+          bool success = true;
+          std::exception_ptr exception = nullptr;
+          try {
+            success = (co_await stopped_as_optional(receiver(coro_just<ValueT>(std::move(value)))))
+                          .has_value();
+          } catch (...) {
+            exception = std::current_exception();
+          }
           co_await self.mContext->mScheduler.schedule();
+          if (!success || exception) {
+            if (sender) {
+              sender.promise().unhandled_stopped();
+            }
+            if (exception) {
+              std::rethrow_exception(exception);
+            }
+            co_return;
+          }
           sender.resume();
         } else {
           struct ReceiveAwaitable : ImmovableBase {
+            struct OnStopRequested {
+              void operator()() noexcept try {
+                mAwaiter->self.mContext->mScope.spawn(
+                    [](AsyncChannel<ValueT> self,
+                       std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle)
+                        -> Task<void> {
+                      co_await self.mContext->mScheduler.schedule();
+                      if (self.mContext->mContinuation == handle) {
+                        self.mContext->mContinuation = nullptr;
+                        handle.promise().unhandled_stopped();
+                      }
+                    }(mAwaiter->self, mAwaiter->mHandle));
+              } catch (...) {
+                // Swallow exceptions here
+              }
+              ReceiveAwaitable* mAwaiter;
+            };
             static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
-            auto await_suspend(std::coroutine_handle<> handle) noexcept -> void {
+            auto
+            await_suspend(std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) noexcept
+                -> void {
+              mHandle = handle;
               self.mContext->mContinuation = handle;
+              std::stop_token stopToken = cw::get_stop_token(cw::get_env(handle.promise()));
+              mStopCallback.emplace(stopToken, OnStopRequested{this});
             }
-            auto await_resume() noexcept -> void {}
+            auto await_resume() noexcept -> void { mStopCallback.reset(); }
             AsyncChannel<ValueT> self;
+            std::coroutine_handle<TaskPromise<void, IoTaskTraits>> mHandle;
+            std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
           };
-          co_await ReceiveAwaitable{{}, self};
+          co_await ReceiveAwaitable{{}, self, nullptr, std::nullopt};
         }
       }
     }

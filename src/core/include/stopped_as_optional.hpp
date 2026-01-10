@@ -74,7 +74,7 @@ template <class AwaiterPromise> struct StoppedAsOptionalTask : ImmovableBase {
 
     void unhandled_stopped() noexcept {
       // Treat stopped as no result
-      std::coroutine_handle<promise_type>::from_promise(*this).resume();
+      mState->mContinuation.resume();
     }
 
     auto get_env() const noexcept -> cw::env_of_t<AwaiterPromise> {
@@ -104,6 +104,7 @@ template <class AwaiterPromise, class ChildSender> struct StoppedAsOptionalAwait
          ChildSender&& childSender) -> StoppedAsOptionalTask<AwaiterPromise> {
     if constexpr (std::is_void_v<ValueType>) {
       co_await std::move(childSender);
+      state->result.emplace();
       state->mCompletionType.store(2, std::memory_order_release);
     } else {
       auto value = co_await std::move(childSender);

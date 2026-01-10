@@ -4,6 +4,7 @@
 #include "wayland/FrameBufferPool.hpp"
 #include "AsyncQueue.hpp"
 #include "Strand.hpp"
+#include "coro_guard.hpp"
 #include "narrow.hpp"
 #include "when_all.hpp"
 #include "when_stop_requested.hpp"
@@ -24,7 +25,6 @@ struct FrameBufferPoolContext : ImmovableBase {
   static constexpr std::size_t kMinWidth = 640;
 
   Client mClient;
-  Strand mStrand;
   protocol::Shm mShm;
   protocol::ShmPool mShmPool;
   FileDescriptor mShmPoolFd;
@@ -41,7 +41,7 @@ struct FrameBufferPoolContext : ImmovableBase {
       const FrameBufferPoolContext* mContext;
 
       auto query(get_scheduler_t) const noexcept -> IoScheduler {
-        return mContext->mStrand.get_scheduler();
+        return mContext->mClient.connection().get_scheduler();
       }
 
       auto query(get_stop_token_t) const noexcept -> std::stop_token {
@@ -55,8 +55,8 @@ struct FrameBufferPoolContext : ImmovableBase {
     return Env{this};
   }
 
-  explicit FrameBufferPoolContext(Client client, Strand strand)
-      : mClient(std::move(client)), mStrand(std::move(strand)),
+  explicit FrameBufferPoolContext(Client client)
+      : mClient(std::move(client)),
         mShmPoolFd(::memfd_create("wayland-shm-pool", MFD_CLOEXEC | MFD_ALLOW_SEALING)) {
     if (mShmPoolFd.native_handle() == -1) {
       throw std::system_error(errno, std::generic_category(), "Failed to create shm pool fd");
@@ -77,8 +77,6 @@ struct FrameBufferPoolContext : ImmovableBase {
   }
 
   auto resize(Width width, Height height) -> IoTask<void> {
-    co_await use_resource(mStrand.lock());
-
     // first close old buffers
     if (mCurrentBufferStopSource && mCurrentBufferScope) {
       mCurrentBufferStopSource->request_stop();
@@ -162,14 +160,23 @@ auto FrameBufferPool::make(Client client) -> Observable<FrameBufferPool> {
     static auto do_subscribe(Client client,
                              std::function<auto(IoTask<FrameBufferPool>)->IoTask<void>> receiver)
         -> IoTask<void> {
-      Strand strand = co_await use_resource(Strand::make());
-      FrameBufferPoolContext context(client, strand);
+      FrameBufferPoolContext context(client);
       context.mShm = co_await use_resource(client.bind<protocol::Shm>());
       context.mShmPool = co_await use_resource(context.mShm.create_pool(
           context.mShmPoolFd, narrow<int32_t>(context.mShmData.size_bytes())));
       co_await context.resize(Width{640}, Height{480});
       FrameBufferPool pool{context};
-      co_await receiver(coro_just(pool));
+      auto cleanup = [](FrameBufferPool pool) -> IoTask<void> {
+        if (pool.mContext->mCurrentBufferStopSource && pool.mContext->mCurrentBufferScope) {
+          pool.mContext->mCurrentBufferStopSource->request_stop();
+          co_await pool.mContext->mCurrentBufferScope->close();
+        }
+        co_return;
+      }(pool);
+      co_await [&](FrameBufferPool pool, auto receiver) -> IoTask<void> {
+        co_await coro_guard(std::move(cleanup));
+        co_await receiver(coro_just(pool));
+      }(pool, std::move(receiver));
     }
 
     auto

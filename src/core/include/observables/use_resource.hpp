@@ -55,7 +55,13 @@ public:
 
   void unhandled_exception() noexcept { std::terminate(); }
 
-  void unhandled_stopped() noexcept { mSharedState->mReleaseHandle.resume(); }
+  void unhandled_stopped() noexcept {
+    mSharedState->mContinuation.set_stopped();
+    std::coroutine_handle<promise_type>::from_promise(*this).destroy();
+    // if (mSharedState->mReleaseHandle) {
+    //   mSharedState->mReleaseHandle.resume();
+    // }
+  }
 
   auto get_env() const noexcept { return mSharedState->mContinuation.get_env(); }
 
@@ -78,7 +84,7 @@ template <class ValueT, class AwaiterPromise> struct WaitUntilRelease {
     return mSharedState->mAwaiterHandle;
   }
 
-  void await_resume() noexcept {}
+  void await_resume() noexcept { mSharedState->mReleaseHandle = nullptr; }
 
   std::shared_ptr<UseResourceSharedState<ValueT, AwaiterPromise>> mSharedState;
 };

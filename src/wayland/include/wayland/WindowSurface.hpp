@@ -16,6 +16,8 @@ public:
 
   auto configure_events() -> Observable<protocol::XdgToplevel::ConfigureEvent>;
 
+  auto close_events() -> Observable<protocol::XdgToplevel::CloseEvent>;
+
   auto attach(protocol::Buffer buffer, std::int32_t x, std::int32_t y) -> void;
 
 private:

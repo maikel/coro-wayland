@@ -32,7 +32,7 @@ auto Strand::make() -> Observable<Strand> {
       bool stopped = false;
       try {
         stopped =
-            (co_await cw::stopped_as_optional(receiver(coro_just<Strand>(strand)))).has_value();
+            !(co_await cw::stopped_as_optional(receiver(coro_just<Strand>(strand)))).has_value();
       } catch (...) {
         exception = std::current_exception();
       }
