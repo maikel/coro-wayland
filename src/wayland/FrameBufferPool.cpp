@@ -107,9 +107,9 @@ struct FrameBufferPoolContext : ImmovableBase {
     mWidth = newWidth;
     mHeight = newHeight;
     mPixelViews[0] = std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>{
-        mShmData.data(), std::dextents<std::size_t, 2>{mWidth, mHeight}};
+        mShmData.data(), std::dextents<std::size_t, 2>{mHeight, mWidth}};
     mPixelViews[1] = std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>{
-        mShmData.data() + mWidth * mHeight, std::dextents<std::size_t, 2>{mWidth, mHeight}};
+        mShmData.data() + mWidth * mHeight, std::dextents<std::size_t, 2>{mHeight, mWidth}};
 
     // create new shm pool and buffers
     auto createBuffer1 =
@@ -126,21 +126,17 @@ struct FrameBufferPoolContext : ImmovableBase {
 
     auto bufferSubscriber1 = [&](IoTask<protocol::Buffer> bufferTask) -> IoTask<void> {
       protocol::Buffer buffer = co_await std::move(bufferTask);
-      Log::d("Created buffer 1");
       mBuffers[0] = buffer;
       co_await queue.push(0);
       co_await when_stop_requested();
-      Log::d("Destroying buffer 1");
       buffer.destroy();
     };
 
     auto bufferSubscriber2 = [&](IoTask<protocol::Buffer> bufferTask) -> IoTask<void> {
       protocol::Buffer buffer = co_await std::move(bufferTask);
       mBuffers[1] = buffer;
-      Log::d("Created buffer 2");
       co_await queue.push(1);
       co_await when_stop_requested();
-      Log::d("Destroying buffer 2");
       buffer.destroy();
     };
 

@@ -147,15 +147,15 @@ public:
                       cw::when_any(subscriber(std::move(handle)), recv_messages(&context))))
                      .has_value();
       if (stopped) {
-        Log::d("Wayland connection was stopped.");
+        // Log::d("Wayland connection was stopped.");
       } else {
-        Log::d("Wayland connection tasks completed.");
+        // Log::d("Wayland connection tasks completed.");
       }
     } catch (std::exception& e) {
-      Log::e("Caught exception: {}", e.what());
+      // Log::e("Caught exception: {}", e.what());
       exception = std::current_exception();
     }
-    Log::d("Closing connection to wayland server.");
+    // Log::d("Closing connection to wayland server.");
     co_await context.close();
     if (stopped) {
       co_await cw::just_stopped();
@@ -197,12 +197,12 @@ private:
             int* fds = reinterpret_cast<int*>(CMSG_DATA(cmsg));
             for (std::size_t i = 0; i < fdCount; ++i) {
               int fd = fds[i];
-              Log::d("Received file descriptor {} from Wayland socket", fd);
+              // Log::d("Received file descriptor {} from Wayland socket", fd);
               connection->mReceivedFileDescriptors.emplace(fd);
             }
           } else {
-            Log::d("Received unknown control message of level {} and type {}", cmsg->cmsg_level,
-                   cmsg->cmsg_type);
+            // Log::d("Received unknown control message of level {} and type {}", cmsg->cmsg_level,
+            //  cmsg->cmsg_type);
           }
         }
       } else if (rc == -1) {
@@ -248,12 +248,12 @@ private:
         try {
           co_await proxy->handle_message(message, OpCode{opCode});
         } catch (const std::exception& e) {
-          Log::e("Exception while handling message: {}", e.what());
+          // Log::e("Exception while handling message: {}", e.what());
         } catch (...) {
-          Log::e("Unknown exception while handling message");
+          // Log::e("Unknown exception while handling message");
         }
       } else {
-        Log::w("No proxy found for ObjectId {}, message ignored", objectId);
+        // Log::w("No proxy found for ObjectId {}, message ignored", objectId);
       }
       std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
       bytesRead -= messageLength;
@@ -477,7 +477,7 @@ void Connection::send_message(std::vector<char> message, std::optional<FileDescr
       ssize_t rc = ::sendmsg(self.mConnection->get_fd(), &msg, 0);
       int ec = errno;
       if (rc == -1 && (ec != EAGAIN && ec != EWOULDBLOCK)) {
-        Log::e("Failed to send message to Wayland socket: {}", std::strerror(ec));
+        // Log::e("Failed to send message to Wayland socket: {}", std::strerror(ec));
         throw std::system_error(ec, std::generic_category(),
                                 "Failed to send message to Wayland socket");
       } else if (rc != -1) {

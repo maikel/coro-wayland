@@ -90,7 +90,7 @@ public:
     IoTask<void> registryEventTask = registry.events().subscribe(registrySubscriber);
     Client client = context.get_client();
     co_await when_any(receiver(coro_just(client)), std::move(errorEventTask),
-                                   std::move(registryEventTask));
+                      std::move(registryEventTask));
   }
 };
 } // namespace

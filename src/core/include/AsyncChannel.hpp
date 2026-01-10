@@ -79,7 +79,6 @@ template <class ValueT> auto AsyncChannel<ValueT>::send(ValueT value) -> IoTask<
       AsyncChannel<ValueT> self;
     };
     co_await SendAwaitable{{}, self};
-    
   }(*this, std::move(value)));
 }
 

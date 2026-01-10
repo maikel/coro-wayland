@@ -1,5 +1,5 @@
 add_subdirectory(code_generator)
 add_subdirectory(core)
-# add_subdirectory(renderer)
+add_subdirectory(renderer)
 add_subdirectory(logging)
 add_subdirectory(wayland)

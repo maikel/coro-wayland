@@ -70,9 +70,9 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
           xdgWmBase.events().subscribe(
               [&](IoTask<std::variant<protocol::XdgWmBase::PingEvent>> eventTask) -> IoTask<void> {
                 auto event = std::get<0>(co_await std::move(eventTask));
-                Log::i("Received XdgWmBase::PingEvent with serial {}", event.serial);
+                // Log::i("Received XdgWmBase::PingEvent with serial {}", event.serial);
                 xdgWmBase.pong(event.serial);
-                Log::i("Sent XdgWmBase::Pong for serial {}", event.serial);
+                // Log::i("Sent XdgWmBase::Pong for serial {}", event.serial);
               }),
           context.get_env());
 
@@ -80,7 +80,8 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
                       [&](IoTask<std::variant<protocol::XdgSurface::ConfigureEvent>> eventTask)
                           -> IoTask<void> {
                         auto event = std::get<0>(co_await std::move(eventTask));
-                        Log::i("Received from QUEUE XdgSurface::ConfigureEvent with serial {}", event.serial);
+                        Log::i("Received from QUEUE XdgSurface::ConfigureEvent with serial {}",
+                               event.serial);
                         co_await configureChannel.send(event);
                       }),
                   context.get_env());
@@ -132,7 +133,7 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
               xdgSurface.ack_configure(surfaceEvent.serial);
               surface.commit();
             }
-        });
+          });
 
       co_await when_all(receiver(coro_just(windowSurface)), std::move(configureEvents));
     }
