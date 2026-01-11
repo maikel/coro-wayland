@@ -218,8 +218,9 @@ auto WindowSurface::attach(protocol::Buffer buffer) -> void {
 }
 
 auto WindowSurface::damage(Position position, Extents extents) -> void {
-  mContext->mSurface.damage(narrow<std::int32_t>(position.x), narrow<std::int32_t>(position.y), 
-   narrow<std::int32_t>(extents.extent(0)), narrow<std::int32_t>(extents.extent(1)));
+  mContext->mSurface.damage(narrow<std::int32_t>(position.x), narrow<std::int32_t>(position.y),
+                            narrow<std::int32_t>(extents.extent(0)),
+                            narrow<std::int32_t>(extents.extent(1)));
 }
 
 auto WindowSurface::close_events() -> Observable<protocol::XdgToplevel::CloseEvent> {

@@ -70,15 +70,17 @@ template <class ValueT> auto AsyncChannel<ValueT>::send(ValueT value) -> IoTask<
     struct SendAwaitable : ImmovableBase {
       struct OnStopRequested {
         void operator()() noexcept try {
-          mAwaiter->self.mContext->mScope.spawn(
-              [](AsyncChannel<ValueT> self,
-                 std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) -> Task<void> {
-                co_await self.mContext->mScheduler.schedule();
-                if (self.mContext->mContinuation == handle) {
-                  self.mContext->mContinuation = nullptr;
-                  handle.promise().unhandled_stopped();
-                }
-              }(mAwaiter->self, mAwaiter->mHandle));
+          if (mAwaiter->mHandle) {
+            mAwaiter->self.mContext->mScope.spawn(
+                [](AsyncChannel<ValueT> self,
+                   std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) -> Task<void> {
+                  co_await self.mContext->mScheduler.schedule();
+                  if (self.mContext->mContinuation == handle) {
+                    self.mContext->mContinuation = nullptr;
+                    handle.promise().unhandled_stopped();
+                  }
+                }(mAwaiter->self, mAwaiter->mHandle));
+          }
         } catch (...) {
           // Swallow exceptions here
         }
@@ -138,16 +140,18 @@ template <class ValueT> auto AsyncChannel<ValueT>::receive() -> Observable<Value
           struct ReceiveAwaitable : ImmovableBase {
             struct OnStopRequested {
               void operator()() noexcept try {
-                mAwaiter->self.mContext->mScope.spawn(
-                    [](AsyncChannel<ValueT> self,
-                       std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle)
-                        -> Task<void> {
-                      co_await self.mContext->mScheduler.schedule();
-                      if (self.mContext->mContinuation == handle) {
-                        self.mContext->mContinuation = nullptr;
-                        handle.promise().unhandled_stopped();
-                      }
-                    }(mAwaiter->self, mAwaiter->mHandle));
+                if (mAwaiter->mHandle) {
+                  mAwaiter->self.mContext->mScope.spawn(
+                      [](AsyncChannel<ValueT> self,
+                         std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle)
+                          -> Task<void> {
+                        co_await self.mContext->mScheduler.schedule();
+                        if (self.mContext->mContinuation == handle) {
+                          self.mContext->mContinuation = nullptr;
+                          handle.promise().unhandled_stopped();
+                        }
+                      }(mAwaiter->self, mAwaiter->mHandle));
+                }
               } catch (...) {
                 // Swallow exceptions here
               }

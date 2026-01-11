@@ -20,7 +20,7 @@ struct ClientContext {
   protocol::Display mDisplay;
   protocol::Registry mRegistry;
   AsyncUnorderedMapHandle<std::string, protocol::Registry::GlobalEvent> mGlobals;
-  AsyncQueueHandle<protocol::Display::ErrorEvent> mErrorEvents;
+  AsyncQueue<protocol::Display::ErrorEvent> mErrorEvents;
 
   auto get_client() -> Client { return Client{*this}; }
 };

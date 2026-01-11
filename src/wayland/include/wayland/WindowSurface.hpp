@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include "PixelsView.hpp"
 #include "wayland/Client.hpp"
 #include "wayland/XdgShell.hpp"
-#include "PixelsView.hpp"
 
 namespace cw {
 

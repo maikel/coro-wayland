@@ -27,7 +27,7 @@ auto coro_just(Value val) -> cw::IoTask<Value> {
 
 {% for interface in interfaces %}
 struct {{ interface.cppname }}Context : cw::ProxyInterface { {% if interface.events %}
-  using EventQueueType = cw::AsyncQueueHandle<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ interface.cppname }}::{{ event.cppname }}{% endfor %}>>;{% endif %}
+  using EventQueueType = cw::AsyncQueue<std::variant<{% for event in interface.events %}{% if event.__tail %}, {% endif %}{{ interface.cppname }}::{{ event.cppname }}{% endfor %}>>;{% endif %}
 
   explicit {{ interface.cppname }}Context(cw::ObjectId objectId, cw::Connection connection{% if interface.events %}, EventQueueType channel{% endif %});
   ~{{ interface.cppname }}Context() override;

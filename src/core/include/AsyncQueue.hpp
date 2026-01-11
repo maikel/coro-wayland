@@ -7,6 +7,8 @@
 #include "ImmovableBase.hpp"
 #include "IoTask.hpp"
 #include "Observable.hpp"
+#include "coro_just.hpp"
+#include "observables/use_resource.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
 
@@ -15,13 +17,13 @@
 
 namespace cw {
 
-template <class Tp> class AsyncQueueHandle;
+template <class Tp> class AsyncQueue;
 
-template <class Tp> class AsyncQueue : ImmovableBase {
+template <class Tp> class AsyncQueueContext : ImmovableBase {
 public:
-  explicit AsyncQueue(IoScheduler scheduler) noexcept;
+  explicit AsyncQueueContext(IoScheduler scheduler, AsyncScopeHandle scope) noexcept;
 
-  static auto make() -> Observable<AsyncQueueHandle<Tp>>;
+  static auto make() -> Observable<AsyncQueue<Tp>>;
 
   template <class... Args>
     requires std::constructible_from<Tp, Args...>
@@ -29,24 +31,22 @@ public:
 
   auto pop();
 
-  auto close() noexcept -> Task<void>;
-
 private:
   IoScheduler mScheduler;
-  AsyncScope mScope;
+  AsyncScopeHandle mScope;
   std::queue<Tp> mQueue;
   std::vector<std::coroutine_handle<TaskPromise<Tp, TaskTraits>>> mWaiters;
 };
 
 template <class Tp> class AsyncQueueObservable {
 public:
-  explicit AsyncQueueObservable(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
+  explicit AsyncQueueObservable(AsyncQueueContext<Tp>& queue) noexcept : mQueue(&queue) {}
 
   template <class Receiver> auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
-    return [](AsyncQueue<Tp>* queue, Receiver receiver) -> IoTask<void> {
+    return [](AsyncQueueContext<Tp>* queue, Receiver receiver) -> IoTask<void> {
       std::stop_token stopToken = co_await cw::read_env(cw::get_stop_token);
       while (!stopToken.stop_requested()) {
-        auto popTask = [](AsyncQueue<Tp>* queue) -> IoTask<Tp> {
+        auto popTask = [](AsyncQueueContext<Tp>* queue) -> IoTask<Tp> {
           co_return co_await queue->pop();
         }(queue);
         co_await receiver(std::move(popTask));
@@ -55,18 +55,19 @@ public:
   }
 
 private:
-  AsyncQueue<Tp>* mQueue;
+  AsyncQueueContext<Tp>* mQueue;
 };
 
-template <class Tp> auto as_observable(AsyncQueue<Tp>& queue) noexcept -> AsyncQueueObservable<Tp> {
+template <class Tp>
+auto as_observable(AsyncQueueContext<Tp>& queue) noexcept -> AsyncQueueObservable<Tp> {
   return AsyncQueueObservable<Tp>(queue);
 }
 
-template <class Tp> class AsyncQueueHandle {
+template <class Tp> class AsyncQueue {
 public:
-  explicit AsyncQueueHandle(AsyncQueue<Tp>& queue) noexcept : mQueue(&queue) {}
+  explicit AsyncQueue(AsyncQueueContext<Tp>& queue) noexcept : mQueue(&queue) {}
 
-  static auto make() -> Observable<AsyncQueueHandle<Tp>>;
+  static auto make() -> Observable<AsyncQueue<Tp>>;
 
   template <class... Args>
     requires std::constructible_from<Tp, Args...>
@@ -81,17 +82,18 @@ public:
   }
 
 private:
-  AsyncQueue<Tp>* mQueue;
+  AsyncQueueContext<Tp>* mQueue;
 };
 
 template <class Tp>
-AsyncQueue<Tp>::AsyncQueue(IoScheduler scheduler) noexcept : mScheduler(std::move(scheduler)){};
+AsyncQueueContext<Tp>::AsyncQueueContext(IoScheduler scheduler, AsyncScopeHandle scope) noexcept
+    : mScheduler(std::move(scheduler)), mScope(std::move(scope)){};
 
 template <class Tp>
 template <class... Args>
   requires std::constructible_from<Tp, Args...>
-auto AsyncQueue<Tp>::push(Args&&... args) {
-  return mScope.nest([](AsyncQueue* queue, Args... args) -> Task<void> {
+auto AsyncQueueContext<Tp>::push(Args&&... args) {
+  return mScope.nest([](AsyncQueueContext* queue, Args... args) -> Task<void> {
     co_await queue->mScheduler.schedule();
     queue->mQueue.push(Tp{std::move(args)...});
     if (!queue->mWaiters.empty()) {
@@ -102,14 +104,14 @@ auto AsyncQueue<Tp>::push(Args&&... args) {
   }(this, std::forward<Args>(args)...));
 }
 
-template <class Tp> auto AsyncQueue<Tp>::pop() {
-  return mScope.nest([](AsyncQueue* queue) -> Task<Tp> {
+template <class Tp> auto AsyncQueueContext<Tp>::pop() {
+  return mScope.nest([](AsyncQueueContext* queue) -> Task<Tp> {
     co_await queue->mScheduler.schedule();
     struct Awaiter : ImmovableBase {
       struct OnStopRequested {
         void operator()() noexcept try {
           mAwaiter->mQueue->mScope.spawn(
-              [](AsyncQueue* queue,
+              [](AsyncQueueContext* queue,
                  std::coroutine_handle<TaskPromise<Tp, TaskTraits>> handle) -> Task<void> {
                 co_await queue->mScheduler.schedule();
                 auto iter = std::find(queue->mWaiters.begin(), queue->mWaiters.end(), handle);
@@ -124,9 +126,9 @@ template <class Tp> auto AsyncQueue<Tp>::pop() {
         Awaiter* mAwaiter;
       };
 
-      Awaiter(AsyncQueue* queue) noexcept : mQueue(queue) {}
+      Awaiter(AsyncQueueContext* queue) noexcept : mQueue(queue) {}
 
-      AsyncQueue* mQueue;
+      AsyncQueueContext* mQueue;
       std::coroutine_handle<TaskPromise<Tp, TaskTraits>> mHandle;
       std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
       bool await_ready() const noexcept { return false; }
@@ -154,25 +156,22 @@ template <class Tp> auto AsyncQueue<Tp>::pop() {
   }(this));
 }
 
-template <class Tp> auto AsyncQueue<Tp>::close() noexcept -> Task<void> { co_await mScope.close(); }
-
-template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueueHandle<Tp>> {
-  using Subscriber = std::function<auto(IoTask<AsyncQueueHandle<Tp>>)->IoTask<void>>;
+template <class Tp> auto AsyncQueueContext<Tp>::make() -> Observable<AsyncQueue<Tp>> {
+  using Subscriber = std::function<auto(IoTask<AsyncQueue<Tp>>)->IoTask<void>>;
   struct MakeObservable {
     auto subscribe(Subscriber subscriber) noexcept -> IoTask<void> {
-      AsyncQueue<Tp> queue{co_await cw::read_env(cw::get_scheduler)};
-      auto handleTask = [](AsyncQueue<Tp>* queue) -> IoTask<AsyncQueueHandle<Tp>> {
-        co_return AsyncQueueHandle<Tp>{*queue};
-      }(&queue);
-      co_await subscriber(std::move(handleTask));
-      co_await queue.close();
+      IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
+      AsyncScopeHandle scope = co_await use_resource(AsyncScope::make());
+      AsyncQueueContext<Tp> queue{scheduler, scope};
+      AsyncQueue<Tp> handle{queue};
+      co_await subscriber(coro_just(handle));
     }
   };
   return MakeObservable{};
 }
 
-template <class Tp> auto AsyncQueueHandle<Tp>::make() -> Observable<AsyncQueueHandle<Tp>> {
-  return AsyncQueue<Tp>::make();
+template <class Tp> auto AsyncQueue<Tp>::make() -> Observable<AsyncQueue<Tp>> {
+  return AsyncQueueContext<Tp>::make();
 }
 
 } // namespace cw
