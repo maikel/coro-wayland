@@ -5,6 +5,7 @@
 
 #include "wayland/Client.hpp"
 #include "wayland/XdgShell.hpp"
+#include "PixelsView.hpp"
 
 namespace cw {
 
@@ -18,7 +19,9 @@ public:
 
   auto close_events() -> Observable<protocol::XdgToplevel::CloseEvent>;
 
-  auto attach(protocol::Buffer buffer, std::int32_t x, std::int32_t y) -> void;
+  auto attach(protocol::Buffer buffer) -> void;
+
+  auto damage(Position position, Extents extents) -> void;
 
 private:
   friend struct WindowSurfaceContext;

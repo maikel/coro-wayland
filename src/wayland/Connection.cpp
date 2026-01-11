@@ -4,6 +4,8 @@
 #include "wayland/Connection.hpp"
 
 #include "IoContext.hpp"
+#include "coro_guard.hpp"
+#include "coro_just.hpp"
 #include "just_stopped.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
@@ -78,43 +80,44 @@ ConnectionContext::ConnectionContext(IoScheduler scheduler) : mScheduler(std::mo
 
 ConnectionContext::~ConnectionContext() = default;
 
-namespace {
-void log_message(std::string_view prefix, std::span<const char> message, std::size_t columns = 1) {
-  Log::d("Message data ({} bytes):", message.size());
-  std::size_t i = 0;
-  std::string line;
-  while (i < message.size()) {
-    line = std::format("{} {:04x}:", prefix, i);
-    for (std::size_t col = 0; col < columns; ++col) {
-      if (i + col * sizeof(std::uint32_t) < message.size()) {
-        std::uint32_t word = 0;
-        std::memcpy(
-            &word, message.data() + i + col * sizeof(std::uint32_t),
-            std::min(sizeof(std::uint32_t), message.size() - i + col * sizeof(std::uint32_t)));
-        line += std::format(" {:08x}", word);
-      } else {
-        line += "         ";
-      }
-    }
-    line += "   |   ";
-    for (std::size_t col = 0; col < columns && i + col * sizeof(std::uint32_t) < message.size();
-         ++col) {
-      for (std::size_t j = i + col * sizeof(std::uint32_t);
-           j < i + (col + 1) * sizeof(std::uint32_t) && j < message.size(); ++j) {
-        if (std::isprint(static_cast<unsigned char>(message[j]))) {
-          line += std::format("{}", static_cast<char>(message[j]));
-        } else {
-          line += ".";
-        }
-      }
-      line += " ";
-    }
-    i += columns * sizeof(std::uint32_t);
-    Log::d("{}", line);
-    line.clear();
-  }
-}
-} // namespace
+// namespace {
+// void log_message(std::string_view prefix, std::span<const char> message, std::size_t columns = 1)
+// {
+//   Log::d("Message data ({} bytes):", message.size());
+//   std::size_t i = 0;
+//   std::string line;
+//   while (i < message.size()) {
+//     line = std::format("{} {:04x}:", prefix, i);
+//     for (std::size_t col = 0; col < columns; ++col) {
+//       if (i + col * sizeof(std::uint32_t) < message.size()) {
+//         std::uint32_t word = 0;
+//         std::memcpy(
+//             &word, message.data() + i + col * sizeof(std::uint32_t),
+//             std::min(sizeof(std::uint32_t), message.size() - i + col * sizeof(std::uint32_t)));
+//         line += std::format(" {:08x}", word);
+//       } else {
+//         line += "         ";
+//       }
+//     }
+//     line += "   |   ";
+//     for (std::size_t col = 0; col < columns && i + col * sizeof(std::uint32_t) < message.size();
+//          ++col) {
+//       for (std::size_t j = i + col * sizeof(std::uint32_t);
+//            j < i + (col + 1) * sizeof(std::uint32_t) && j < message.size(); ++j) {
+//         if (std::isprint(static_cast<unsigned char>(message[j]))) {
+//           line += std::format("{}", static_cast<char>(message[j]));
+//         } else {
+//           line += ".";
+//         }
+//       }
+//       line += " ";
+//     }
+//     i += columns * sizeof(std::uint32_t);
+//     Log::d("{}", line);
+//     line.clear();
+//   }
+// }
+// } // namespace
 
 auto ConnectionContext::get_handle() noexcept -> Connection { return Connection{this}; }
 
@@ -137,32 +140,11 @@ public:
         error != 0) {
       throw std::system_error(errno, std::generic_category(), "Wayland socket error");
     }
-    auto handle = [](ConnectionContext* context) -> IoTask<Connection> {
-      co_return context->get_handle();
-    }(&context);
-    std::exception_ptr exception = nullptr;
-    bool stopped = false;
-    try {
-      stopped = !(co_await cw::stopped_as_optional(
-                      cw::when_any(subscriber(std::move(handle)), recv_messages(&context))))
-                     .has_value();
-      if (stopped) {
-        // Log::d("Wayland connection was stopped.");
-      } else {
-        // Log::d("Wayland connection tasks completed.");
-      }
-    } catch (std::exception& e) {
-      // Log::e("Caught exception: {}", e.what());
-      exception = std::current_exception();
-    }
-    // Log::d("Closing connection to wayland server.");
-    co_await context.close();
-    if (stopped) {
-      co_await cw::just_stopped();
-    }
-    if (exception) {
-      std::rethrow_exception(exception);
-    }
+    co_await [](ConnectionContext& context, Subscriber subscriber) -> IoTask<void> {
+      auto handle = context.get_handle();
+      co_await coro_guard(context.close());
+      co_await cw::when_any(subscriber(coro_just(handle)), recv_messages(&context));
+    }(context, std::move(subscriber));
   }
 
 private:
@@ -241,19 +223,19 @@ private:
         bytesRead += additionalBytesRead;
       }
       std::span<const char> message(buffer, messageLength);
-      log_message("S->C", message, 4);
+      // log_message("S->C", message, 4);
       auto proxyIt = connection->mProxies.find(static_cast<ObjectId>(objectId));
       if (proxyIt != connection->mProxies.end() && proxyIt->second) {
         ProxyInterface* proxy = proxyIt->second;
         try {
           co_await proxy->handle_message(message, OpCode{opCode});
         } catch (const std::exception& e) {
-          // Log::e("Exception while handling message: {}", e.what());
+          Log::e("Exception while handling message: {}", e.what());
         } catch (...) {
-          // Log::e("Unknown exception while handling message");
+          Log::e("Unknown exception while handling message");
         }
       } else {
-        // Log::w("No proxy found for ObjectId {}, message ignored", objectId);
+        Log::w("No proxy found for ObjectId {}, message ignored", objectId);
       }
       std::rotate(buffer, buffer + messageLength, buffer + bytesRead);
       bytesRead -= messageLength;
@@ -481,7 +463,7 @@ void Connection::send_message(std::vector<char> message, std::optional<FileDescr
         throw std::system_error(ec, std::generic_category(),
                                 "Failed to send message to Wayland socket");
       } else if (rc != -1) {
-        log_message("C->S", std::span<const char>(message.data(), message.size()), 4);
+        // log_message("C->S", std::span<const char>(message.data(), message.size()), 4);
         break;
       } else {
         co_await self.get_scheduler().poll(self.mConnection->get_fd(), POLLOUT);

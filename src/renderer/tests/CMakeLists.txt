@@ -1,0 +1,3 @@
+add_executable(test_pixels_view test_pixels_view.cpp)
+target_link_libraries(test_pixels_view CoroWayland::Renderer)
+add_test(NAME test_pixels_view COMMAND test_pixels_view)

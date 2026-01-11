@@ -53,9 +53,9 @@ public:
         break;
       }
       case protocol::Display::DeleteIdEvent::index: {
-        protocol::Display::DeleteIdEvent deleteIdEvent =
-            std::get<protocol::Display::DeleteIdEvent>(event);
-        Log::d("Wayland Display Delete ID Event: id={}", deleteIdEvent.id);
+        // protocol::Display::DeleteIdEvent deleteIdEvent =
+        //     std::get<protocol::Display::DeleteIdEvent>(event);
+        // Log::d("Wayland Display Delete ID Event: id={}", deleteIdEvent.id);
         break;
       }
       }

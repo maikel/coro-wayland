@@ -22,10 +22,20 @@
 
 using namespace cw;
 
+auto fill(PixelsView pixels, std::uint32_t color) -> void {
+  for (std::size_t y = 0; y < pixels.height(); ++y) {
+    for (std::size_t x = 0; x < pixels.width(); ++x) {
+      pixels[x, y] = color;
+    }
+  }
+}
+
 auto coro_main(GlyphCache& glyphCache, Font& font) -> IoTask<void> {
   Client client = co_await use_resource(Client::make());
   FrameBufferPool frameBufferPool = co_await use_resource(FrameBufferPool::make(client));
   WindowSurface windowSurface = co_await use_resource(WindowSurface::make(client));
+  TextRenderer textRenderer(glyphCache);
+  int count = 1;
 
   auto configureFrameBuffer =
       windowSurface.configure_events().subscribe([&](auto eventTask) -> IoTask<void> {
@@ -33,12 +43,16 @@ auto coro_main(GlyphCache& glyphCache, Font& font) -> IoTask<void> {
         co_await frameBufferPool.resize(Width{narrow<std::size_t>(event.width)},
                                         Height{narrow<std::size_t>(event.height)});
         auto [buffer, pixels] = frameBufferPool.get_current_buffers()[0];
-        TextRenderer textRenderer(glyphCache);
-        auto textSize = textRenderer.measure_text(font, "Hello World!");
-        auto mid_x = (narrow<int32_t>(pixels.extent(1)) - textSize.width) / 2;
-        auto mid_y = (narrow<int32_t>(pixels.extent(0)) - textSize.height) / 2;
-        textRenderer.draw_text(pixels, font, "Hello World!", mid_x, mid_y, Color{0, 255, 0,
-        255}); windowSurface.attach(buffer, 0, 0);
+        const std::string text = std::format("Hello World #{}", count++);
+        auto textSize = textRenderer.measure_text(font, text);
+        auto mid_x = (pixels.width() - textSize.extent(0)) / 2;
+        auto mid_y = (pixels.height() - textSize.extent(1)) / 2;
+        Position offset{narrow<std::size_t>(mid_x), narrow<std::size_t>(mid_y)};
+        pixels = pixels.subview(offset, textSize);
+        fill(pixels, 0xFF000000); // ARGB black background
+        textRenderer.draw_text(pixels, font, text, Color{0, 255, 0, 255});
+        windowSurface.attach(buffer);
+        windowSurface.damage(offset, textSize);
       });
 
   auto closeEventHandler =
@@ -55,11 +69,5 @@ int main() {
   FontManager fontManager;
   GlyphCache glyphCache;
   Font font = fontManager.load_font("DejaVu Sans Mono", 24);
-  try {
-    fontManager.add_font_directory("/home/nadolsm/Development/musicstreamer/assets");
-    font = fontManager.load_font("PressStart2P-Regular", 24);
-  } catch (FontManagerError const& e) {
-    Log::w("Failed to load font: {}", e.what());
-  }
   sync_wait(coro_main(glyphCache, font));
 }

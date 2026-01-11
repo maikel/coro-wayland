@@ -9,6 +9,6 @@ add_executable(code_generator
 
 target_link_libraries(code_generator CoroWayland::JinjaTemplateEngine)
 
-if (MS_BUILD_TESTING)
+if (CORO_WAYLAND_BUILD_TESTING)
     add_subdirectory(tests)
 endif()

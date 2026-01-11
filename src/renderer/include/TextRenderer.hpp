@@ -4,9 +4,10 @@
 #pragma once
 
 #include <cstdint>
-#include <mdspan>
 #include <memory>
 #include <string_view>
+
+#include "PixelsView.hpp"
 
 namespace cw {
 
@@ -15,11 +16,6 @@ class GlyphCache;
 
 struct Color {
   std::uint8_t r, g, b, a;
-};
-
-struct TextMetrics {
-  std::int32_t width;  // Total width of rendered text
-  std::int32_t height; // Total height (based on font metrics)
 };
 
 // Renders text onto a buffer using fonts and glyph cache
@@ -33,11 +29,10 @@ public:
 
   // Render ASCII text onto buffer at given position
   // buffer: 2D view of ARGB32 pixels [height, width]
-  auto draw_text(std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> buffer, Font const& font,
-                 std::string_view text, std::int32_t x, std::int32_t y, Color color) -> void;
+  auto draw_text(PixelsView buffer, Font const& font, std::string_view text, Color color) -> void;
 
   // Calculate text metrics without rendering
-  auto measure_text(Font const& font, std::string_view text) const -> TextMetrics;
+  auto measure_text(Font const& font, std::string_view text) const -> Extents;
 
 private:
   std::unique_ptr<struct TextRendererImpl> mImpl;

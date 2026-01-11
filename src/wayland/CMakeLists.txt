@@ -34,7 +34,7 @@ add_library(CoroWayland_Wayland
   ${CMAKE_BINARY_DIR}/generated/protocol.cpp
   ${CMAKE_BINARY_DIR}/generated/XdgShell.cpp)
 target_include_directories(CoroWayland_Wayland PUBLIC include ${CMAKE_BINARY_DIR}/generated/include)
-target_link_libraries(CoroWayland_Wayland PUBLIC CoroWayland::Core CoroWayland::logging)
+target_link_libraries(CoroWayland_Wayland PUBLIC CoroWayland::Core CoroWayland::logging CoroWayland::Renderer)
 add_library(CoroWayland::Wayland ALIAS CoroWayland_Wayland)
 
 add_executable(wayland_app wayland_app.cpp)

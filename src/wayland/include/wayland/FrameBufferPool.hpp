@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "PixelsView.hpp"
 #include "wayland/Client.hpp"
 
 #include <mdspan>
@@ -20,12 +21,12 @@ public:
 
   auto resize(Width width, Height height) -> IoTask<void>;
 
-  struct BufferView {
+  struct AvailableBuffer {
     protocol::Buffer buffer;
-    std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> pixels;
+    PixelsView pixels;
   };
 
-  auto get_current_buffers() -> std::array<BufferView, 2>;
+  auto get_current_buffers() -> std::array<AvailableBuffer, 2>;
 
 private:
   friend struct FrameBufferPoolContext;

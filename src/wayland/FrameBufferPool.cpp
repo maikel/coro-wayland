@@ -9,8 +9,6 @@
 #include "when_all.hpp"
 #include "when_stop_requested.hpp"
 
-#include "Logging.hpp"
-
 #include <algorithm>
 #include <system_error>
 
@@ -34,7 +32,7 @@ struct FrameBufferPoolContext : ImmovableBase {
   std::optional<std::stop_source> mCurrentBufferStopSource;
   std::span<std::uint32_t> mShmData;
   std::array<protocol::Buffer, 2> mBuffers;
-  std::array<std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>, 2> mPixelViews;
+  std::array<PixelsView, 2> mPixelViews;
 
   auto get_env() const noexcept {
     struct Env {
@@ -104,10 +102,10 @@ struct FrameBufferPoolContext : ImmovableBase {
     }
     mWidth = newWidth;
     mHeight = newHeight;
-    mPixelViews[0] = std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>{
-        mShmData.data(), std::dextents<std::size_t, 2>{mHeight, mWidth}};
-    mPixelViews[1] = std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>>{
-        mShmData.data() + mWidth * mHeight, std::dextents<std::size_t, 2>{mHeight, mWidth}};
+    mPixelViews[0] = PixelsView{mShmData.subspan(0, mWidth * mHeight),
+                                std::dextents<std::size_t, 2>{mWidth, mHeight}};
+    mPixelViews[1] = PixelsView{mShmData.subspan(mWidth * mHeight),
+                                std::dextents<std::size_t, 2>{mWidth, mHeight}};
 
     // create new shm pool and buffers
     auto createBuffer1 =
@@ -147,9 +145,9 @@ struct FrameBufferPoolContext : ImmovableBase {
     co_await when_all(queue.pop(), queue.pop());
   }
 
-  auto get_current_buffers() -> std::array<FrameBufferPool::BufferView, 2> {
-    return {FrameBufferPool::BufferView{mBuffers[0], mPixelViews[0]},
-            FrameBufferPool::BufferView{mBuffers[1], mPixelViews[1]}};
+  auto get_current_buffers() -> std::array<FrameBufferPool::AvailableBuffer, 2> {
+    return {FrameBufferPool::AvailableBuffer{mBuffers[0], mPixelViews[0]},
+            FrameBufferPool::AvailableBuffer{mBuffers[1], mPixelViews[1]}};
   }
 };
 
@@ -192,7 +190,7 @@ auto FrameBufferPool::resize(Width width, Height height) -> IoTask<void> {
   return mContext->resize(width, height);
 }
 
-auto FrameBufferPool::get_current_buffers() -> std::array<BufferView, 2> {
+auto FrameBufferPool::get_current_buffers() -> std::array<AvailableBuffer, 2> {
   return mContext->get_current_buffers();
 }
 

@@ -4,6 +4,7 @@
 #include "TextRenderer.hpp"
 #include "Font.hpp"
 #include "GlyphCache.hpp"
+#include "narrow.hpp"
 
 #include <algorithm>
 
@@ -39,26 +40,26 @@ struct TextRendererImpl {
                  (static_cast<std::uint32_t>(out_g) << 8) | static_cast<std::uint32_t>(out_b);
   }
 
-  auto draw_glyph(std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> buffer,
-                  CachedGlyph const& glyph, std::int32_t x, std::int32_t y, Color color) -> void {
+  auto draw_glyph(PixelsView pixels, CachedGlyph const& glyph, std::int32_t x, std::int32_t y,
+                  Color color) -> void {
     std::int32_t glyph_x = x + glyph.metrics.bearing_x;
     std::int32_t glyph_y = y - glyph.metrics.bearing_y;
 
-    std::size_t buffer_height = buffer.extent(0);
-    std::size_t buffer_width = buffer.extent(1);
+    std::size_t buffer_height = pixels.height();
+    std::size_t buffer_width = pixels.width();
 
     for (std::uint32_t row = 0; row < glyph.metrics.height; ++row) {
-      std::int32_t target_y = glyph_y + static_cast<std::int32_t>(row);
+      auto target_y = narrow<std::size_t>(glyph_y + static_cast<std::int32_t>(row));
       if (target_y < 0 || static_cast<std::size_t>(target_y) >= buffer_height)
         continue;
 
       for (std::uint32_t col = 0; col < glyph.metrics.width; ++col) {
-        std::int32_t target_x = glyph_x + static_cast<std::int32_t>(col);
+        auto target_x = narrow<std::size_t>(glyph_x + static_cast<std::int32_t>(col));
         if (target_x < 0 || static_cast<std::size_t>(target_x) >= buffer_width)
           continue;
 
         std::uint8_t alpha = glyph.bitmap[row * glyph.metrics.width + col];
-        blend_pixel(alpha, color, buffer[target_y, target_x]);
+        blend_pixel(alpha, color, pixels[target_x, target_y]);
       }
     }
   }
@@ -70,13 +71,12 @@ TextRenderer::TextRenderer(TextRenderer&&) noexcept = default;
 auto TextRenderer::operator=(TextRenderer&&) noexcept -> TextRenderer& = default;
 TextRenderer::~TextRenderer() = default;
 
-auto TextRenderer::draw_text(std::mdspan<std::uint32_t, std::dextents<std::size_t, 2>> buffer,
-                             Font const& font, std::string_view text, std::int32_t x,
-                             std::int32_t y, Color color) -> void {
+auto TextRenderer::draw_text(PixelsView pixels, Font const& font, std::string_view text,
+                             Color color) -> void {
   if (!font.is_valid())
     return;
 
-  std::int32_t cursor_x = x;
+  std::int32_t cursor_x = 0;
   std::uint32_t prev_glyph = 0;
 
   for (char c : text) {
@@ -94,7 +94,7 @@ auto TextRenderer::draw_text(std::mdspan<std::uint32_t, std::dextents<std::size_
     CachedGlyph glyph = mImpl->cache->get(font, glyph_index);
 
     // Draw glyph
-    mImpl->draw_glyph(buffer, glyph, cursor_x, y, color);
+    mImpl->draw_glyph(pixels, glyph, cursor_x, 24, color);
 
     // Advance cursor
     cursor_x += glyph.metrics.advance_x;
@@ -102,7 +102,7 @@ auto TextRenderer::draw_text(std::mdspan<std::uint32_t, std::dextents<std::size_
   }
 }
 
-auto TextRenderer::measure_text(Font const& font, std::string_view text) const -> TextMetrics {
+auto TextRenderer::measure_text(Font const& font, std::string_view text) const -> Extents {
   if (!font.is_valid()) {
     return {};
   }
@@ -125,7 +125,7 @@ auto TextRenderer::measure_text(Font const& font, std::string_view text) const -
     prev_glyph = glyph_index;
   }
 
-  return TextMetrics{.width = width, .height = font_metrics.line_height};
+  return Extents{width, font_metrics.line_height};
 }
 
 } // namespace cw
