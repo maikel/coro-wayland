@@ -23,12 +23,20 @@ using tupled_await_result_t =
                        std::tuple<await_result_t<Sender, AwaitingPromise>>>;
 
 template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
+
   std::atomic<std::ptrdiff_t> mRemainingOps = sizeof...(Senders);
   std::stop_source mStopSource;
   std::atomic<int> mResultType; // 0 = value, 1 = exception, 2 = stopped
   std::exception_ptr mException;
   std::tuple<std::optional<tupled_await_result_t<Senders, AwaitingPromise>>...> mResults;
   std::coroutine_handle<AwaitingPromise> mHandle;
+
+  struct OnStopRequested {
+    WhenAllSharedState* mState;
+
+    auto operator()() noexcept -> void { mState->mStopSource.request_stop(); }
+  };
+  std::optional<std::stop_callback<OnStopRequested>> mStopCallback;
 
   struct Env {
     const WhenAllSharedState* mState;
@@ -49,6 +57,7 @@ template <class AwaitingPromise, class... Senders> struct WhenAllSharedState {
 
   auto complete_promise() noexcept -> void {
     if (mRemainingOps.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      mStopCallback.reset();
       int resultType = mResultType.load(std::memory_order_acquire);
       if (resultType != 2) {
         mHandle.resume();
@@ -190,6 +199,9 @@ template <class AwaitingPromise, class... Senders> struct WhenAllAwaiter : priva
   }
 
   auto await_suspend(std::coroutine_handle<AwaitingPromise>) noexcept -> void {
+    mSharedState.mStopCallback.emplace(
+        cw::get_stop_token(cw::get_env(mSharedState.mHandle.promise())),
+        typename WhenAllSharedState<AwaitingPromise, Senders...>::OnStopRequested{&mSharedState});
     std::apply([](auto&... childTasks) { (childTasks.mHandle.resume(), ...); }, mChildTasks);
   }
   auto await_resume() { return mSharedState.get_results(); }
