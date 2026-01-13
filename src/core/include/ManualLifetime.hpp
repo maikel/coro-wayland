@@ -14,6 +14,8 @@ public:
 
   void destroy() noexcept;
 
+  auto get() -> Tp*;
+
   auto operator->() noexcept -> Tp*;
   auto operator->() const noexcept -> const Tp*;
 
@@ -36,6 +38,9 @@ template <class Tp> template <class... Args> Tp& ManualLifetime<Tp>::emplace(Arg
 template <class Tp> void ManualLifetime<Tp>::destroy() noexcept {
   reinterpret_cast<Tp*>(mStorage)->~Tp();
 }
+
+template <class Tp>
+auto ManualLifetime<Tp>::get() -> Tp* { return reinterpret_cast<Tp*>(mStorage); }
 
 template <class Tp> auto ManualLifetime<Tp>::operator->() noexcept -> Tp* {
   return reinterpret_cast<Tp*>(mStorage);

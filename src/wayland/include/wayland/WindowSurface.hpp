@@ -23,6 +23,10 @@ public:
 
   auto damage(Position position, Extents extents) -> void;
 
+  auto frame() -> IoTask<void>;
+
+  auto commit() -> void;
+
 private:
   friend struct WindowSurfaceContext;
   explicit WindowSurface(WindowSurfaceContext& context) noexcept : mContext(&context) {}

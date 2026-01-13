@@ -99,6 +99,22 @@
             "program": "${workspaceFolder}/build/src/core/tests/test_async_channel",
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_bwos_lifo_queue",
+            "program": "${workspaceFolder}/build/src/core/tests/test_bwos_lifo_queue",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch test_static_thread_pool",
+            "program": "${workspaceFolder}/build/tsan/src/core/tests/test_static_thread_pool",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

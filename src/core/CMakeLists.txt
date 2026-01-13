@@ -4,6 +4,7 @@ add_library(CoroWayland_Core
   IoContext.cpp
   IoTask.cpp
   Strand.cpp
+  StaticThreadPool.cpp
   Task.cpp
   write_env.cpp)
 target_include_directories(CoroWayland_Core PUBLIC include)

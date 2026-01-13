@@ -3,6 +3,7 @@
 
 #include "just_stopped.hpp"
 #include "observables/use_resource.hpp"
+#include "observables/zip.hpp"
 #include "sync_wait.hpp"
 #include "wayland/Client.hpp"
 #include "wayland/FrameBufferPool.hpp"

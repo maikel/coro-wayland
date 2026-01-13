@@ -10,6 +10,8 @@ namespace cw {
 struct Position {
   std::size_t x;
   std::size_t y;
+
+  auto operator==(Position const&) const -> bool = default;
 };
 
 using Extents = std::dextents<std::size_t, 2>;

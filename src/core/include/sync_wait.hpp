@@ -64,14 +64,20 @@ struct SyncWaitTask {
 
     auto initial_suspend() noexcept -> std::suspend_never { return {}; }
 
-    auto final_suspend() noexcept -> std::suspend_always { return {}; }
+    struct FinalSuspendAwaiter {
+      static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
+      auto await_suspend(std::coroutine_handle<promise_type> handle) noexcept -> void {
+        handle.promise().mState->mContext->request_stop();
+      }
+      void await_resume() noexcept {}
+    };
+    auto final_suspend() noexcept -> FinalSuspendAwaiter { return {}; }
 
     void return_void() noexcept {}
 
     void unhandled_exception() noexcept {
       mState->mException = std::current_exception();
       mState->mCompletionType.store(1, std::memory_order_release);
-      mState->mContext->request_stop();
     }
 
     void unhandled_stopped() noexcept {
@@ -83,6 +89,10 @@ struct SyncWaitTask {
 
     SyncWaitStateBase* mState;
   };
+
+  ~SyncWaitTask() {
+    mHandle.destroy();
+  }
 
   std::coroutine_handle<promise_type> mHandle;
 };
@@ -99,10 +109,8 @@ template <class Awaitable> auto sync_wait(Awaitable&& awaitable) {
       state->result.emplace(co_await std::forward<Awaitable>(awaitable));
       state->mCompletionType.store(2, std::memory_order_release);
     }
-    state->mContext->request_stop();
   }(&state, std::forward<Awaitable>(awaitable));
   ioContext.run();
-  task.mHandle.destroy();
   return state.get_result();
 }
 

@@ -34,6 +34,20 @@
       }
     },
     {
+      "name": "clang-20-tsan",
+      "displayName": "Clang 20 Thread Sanitizer Configuration",
+      "description": "Build configuration using Clang++-20 compiler",
+      "inherits": "clang-warnings-hardening",
+      "binaryDir": "${sourceDir}/build/tsan",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS_DEBUG": "-O0 -g -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG -fsanitize=thread",
+        "CMAKE_CXX_COMPILER": "clang++-20",
+        "CMAKE_C_COMPILER": "clang-20",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
       "name": "clang-20-debug",
       "displayName": "Clang 20 Debug Configuration",
       "description": "Build configuration using Clang++-20 compiler",

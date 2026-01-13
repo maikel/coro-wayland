@@ -224,7 +224,8 @@ private:
   std::tuple<Senders...> mSenders;
 };
 
-template <std::movable... Senders>
+template <class... Senders>
+  requires (std::movable<std::decay_t<Senders>> && ...)
 auto when_all(Senders&&... senders) noexcept -> WhenAllSender<std::decay_t<Senders>...> {
   return WhenAllSender<std::decay_t<Senders>...>(std::forward<Senders>(senders)...);
 }

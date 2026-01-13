@@ -41,3 +41,11 @@ add_test(test_use_resource test_use_resource)
 add_executable(test_async_channel test_async_channel.cpp)
 target_link_libraries(test_async_channel CoroWayland::Core)
 add_test(test_async_channel test_async_channel)
+
+add_executable(test_bwos_lifo_queue test_bwos_lifo_queue.cpp)
+target_link_libraries(test_bwos_lifo_queue CoroWayland::Core)
+add_test(test_bwos_lifo_queue test_bwos_lifo_queue)
+
+add_executable(test_static_thread_pool test_static_thread_pool.cpp)
+target_link_libraries(test_static_thread_pool CoroWayland::Core)
+add_test(test_static_thread_pool test_static_thread_pool)

@@ -1,0 +1,3 @@
+add_library(CoroWayland_Widgets INTERFACE)
+target_include_directories(CoroWayland_Widgets INTERFACE include)
+add_library(CoroWayland::Widgets ALIAS CoroWayland_Widgets)

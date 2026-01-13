@@ -28,6 +28,8 @@ public:
 
   auto get_current_buffers() -> std::array<AvailableBuffer, 2>;
 
+  auto available_buffer() -> IoTask<AvailableBuffer>;
+
 private:
   friend struct FrameBufferPoolContext;
   explicit FrameBufferPool(FrameBufferPoolContext& context) noexcept : mContext(&context) {}
