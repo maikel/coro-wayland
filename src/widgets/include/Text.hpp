@@ -3,30 +3,29 @@
 
 #pragma once
 
+#include "Font.hpp"
 #include "Widget.hpp"
 
 #include <string>
 
 namespace cw {
 
-class Font;
-struct Color;
+struct TextProperties {
+  std::string text;
+  std::uint32_t color;
+  Font font;
+};
 
 // Leaf widget that displays text
 class Text : public Widget {
 public:
-  Text(Font const& font, std::string text, Color color);
+  explicit Text(Observable<TextProperties>&& properties);
+  explicit Text(Font const& font, std::string text, std::uint32_t color);
 
-  auto layout(BoxConstraints constraints) -> Size override;
-  auto render(RenderContext& context) -> void override;
-
-  // Update text content and mark dirty
-  auto set_text(std::string text) -> void;
+  auto render_object() && -> Observable<AnyRenderObject> override;
 
 private:
-  Font const* mFont;
-  std::string mText;
-  Color mColor;
+  Observable<TextProperties> mProperties;
 };
 
 } // namespace cw

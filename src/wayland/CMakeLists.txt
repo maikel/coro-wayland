@@ -40,6 +40,3 @@ add_library(CoroWayland::Wayland ALIAS CoroWayland_Wayland)
 
 add_executable(wayland_app wayland_app.cpp)
 target_link_libraries(wayland_app CoroWayland::Wayland)
-
-add_executable(wayland_app2 wayland_app2.cpp)
-target_link_libraries(wayland_app2 CoroWayland::Wayland CoroWayland::Renderer)

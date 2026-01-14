@@ -13,7 +13,7 @@ class WindowContext;
 
 class Window {
 public:
-  static auto make(std::unique_ptr<Widget> rootWidget) -> Observable<Window>;
+  static auto make(AnyWidget rootWidget) -> Observable<Window>;
 
 private:
   explicit Window(WindowContext& context) noexcept : mContext(&context) {}

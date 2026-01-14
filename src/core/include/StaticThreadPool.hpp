@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025 Maikel Nadolski <maikel.nadolski@gmail.com>
 
-#include "bwos_lifo_queue.hpp"
 #include "ManualLifetime.hpp"
 #include "Observable.hpp"
+#include "bwos_lifo_queue.hpp"
 
 #include <condition_variable>
 #include <coroutine>
 #include <mutex>
+#include <ranges>
 #include <thread>
 #include <vector>
-#include <ranges>
 
 namespace cw {
 
@@ -21,8 +21,7 @@ struct BwosParams {
 
 struct WrokerThreadState;
 
-template <class Fn>
-class BulkSender;
+template <class Fn> class BulkSender;
 
 class StaticThreadPool {
 public:
@@ -40,13 +39,13 @@ public:
     static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
     auto await_suspend(std::coroutine_handle<> handle) noexcept -> void { mPool->enqueue(handle); }
     auto await_resume() noexcept -> void {}
-   private:
+
+  private:
     StaticThreadPool* mPool;
   };
   auto schedule() -> ScheduleSender { return ScheduleSender(this); }
 
-  template <class Fn>
-  auto schedule_bulk(std::size_t count, Fn fn) -> BulkSender<Fn>;
+  template <class Fn> auto schedule_bulk(std::size_t count, Fn fn) -> BulkSender<Fn>;
 
 private:
   friend struct WrokerThreadState;
@@ -54,8 +53,8 @@ private:
   std::mutex mMutex;
   std::condition_variable mCondition;
   std::vector<std::coroutine_handle<>> mTasks;
-  std::size_t mThiefs;
-  std::size_t mSleeping;
+  std::size_t mThiefs{};
+  std::size_t mSleeping{};
   bool mStopping = false;
 };
 
@@ -68,15 +67,12 @@ void StaticThreadPool::enqueue_bulk(Iter begin, Sentinel end) {
   mCondition.notify_all();
 }
 
-template <class Promise>
-struct BulkSharedState {
+template <class Promise> struct BulkSharedState {
   explicit BulkSharedState(std::size_t& ongoingChildren, Promise& promise) noexcept
       : mPromise(promise), mOngoingChildren(ongoingChildren << 2) {}
 
   struct OnStopRequested {
-    void operator()() noexcept {
-      mSharedState->mStopSource.request_stop();
-    }
+    void operator()() noexcept { mSharedState->mStopSource.request_stop(); }
     BulkSharedState* mSharedState;
   };
 
@@ -87,8 +83,7 @@ struct BulkSharedState {
   alignas(64) std::atomic<std::size_t> mOngoingChildren;
 };
 
-template <class Promise>
-struct BulkTask {
+template <class Promise> struct BulkTask {
   struct promise_type;
 
   explicit BulkTask(std::coroutine_handle<promise_type> handle) noexcept : mHandle(handle) {}
@@ -96,9 +91,7 @@ struct BulkTask {
   BulkTask(const BulkTask& other) = delete;
   BulkTask& operator=(const BulkTask& other) = delete;
 
-  BulkTask(BulkTask&& other) noexcept : mHandle(other.mHandle) {
-    other.mHandle = nullptr;
-  }
+  BulkTask(BulkTask&& other) noexcept : mHandle(other.mHandle) { other.mHandle = nullptr; }
 
   BulkTask& operator=(BulkTask&& other) noexcept {
     if (this != &other) {
@@ -120,9 +113,9 @@ struct BulkTask {
   std::coroutine_handle<promise_type> mHandle;
 };
 
-template <class Promise>
-struct BulkTask<Promise>::promise_type : ConnectablePromise {
-  explicit promise_type(BulkSharedState<Promise>* sharedState, std::size_t) noexcept : mSharedState(sharedState) {}
+template <class Promise> struct BulkTask<Promise>::promise_type : ConnectablePromise {
+  explicit promise_type(BulkSharedState<Promise>* sharedState, std::size_t) noexcept
+      : mSharedState(sharedState) {}
 
   auto get_return_object() noexcept -> BulkTask {
     return BulkTask{std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -133,7 +126,7 @@ struct BulkTask<Promise>::promise_type : ConnectablePromise {
   auto do_completion() noexcept -> void {
     std::size_t oldValue = mSharedState->mOngoingChildren.fetch_sub(0b100);
     std::size_t oldCount = oldValue >> 2;
-    if (oldCount  == 1) {
+    if (oldCount == 1) {
       mSharedState->mStopCallback.reset();
       if ((oldValue & 1) == 0) {
         std::coroutine_handle<Promise>::from_promise(mSharedState->mPromise).resume();
@@ -174,42 +167,38 @@ struct BulkTask<Promise>::promise_type : ConnectablePromise {
     do_completion();
   }
 
-  auto get_env() const noexcept -> env_of_t<Promise> {
-    return cw::get_env(mSharedState->mPromise);
-  }
+  auto get_env() const noexcept -> env_of_t<Promise> { return cw::get_env(mSharedState->mPromise); }
 
   BulkSharedState<Promise>* mSharedState;
 };
 
-template <class Fn, class Promise>
-class BulkAwaitable : BulkSharedState<Promise> {
+template <class Fn, class Promise> class BulkAwaitable : BulkSharedState<Promise> {
 public:
-  explicit BulkAwaitable(StaticThreadPool* pool, Fn fn, std::size_t nTasks, Promise& promise) noexcept
+  explicit BulkAwaitable(StaticThreadPool* pool, Fn fn, std::size_t nTasks,
+                         Promise& promise) noexcept
       : BulkSharedState<Promise>(nTasks, promise), mPool(pool), mFn(std::move(fn)), mBulkTasks() {
-     this->mBulkTasks.reserve(nTasks);
-     for (std::size_t i = 0; i < nTasks; ++i) {
-       this->mBulkTasks.emplace_back(
-           [](BulkAwaitable<Fn, Promise>* sharedState, std::size_t index) -> BulkTask<Promise> {
-             co_await sharedState->mFn(index);
-           }(this, i));
-     }
+    this->mBulkTasks.reserve(nTasks);
+    for (std::size_t i = 0; i < nTasks; ++i) {
+      this->mBulkTasks.emplace_back(
+          [](BulkAwaitable<Fn, Promise>* sharedState, std::size_t index) -> BulkTask<Promise> {
+            co_await sharedState->mFn(index);
+          }(this, i));
+    }
   }
-
 
   static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
 
   auto await_resume() noexcept -> void {}
 
   auto await_suspend(std::coroutine_handle<>) noexcept -> void {
-    this->mStopCallback.emplace(
-        cw::get_stop_token(cw::get_env(this->mPromise)),
-        typename BulkSharedState<Promise>::OnStopRequested{this});
+    this->mStopCallback.emplace(cw::get_stop_token(cw::get_env(this->mPromise)),
+                                typename BulkSharedState<Promise>::OnStopRequested{this});
     if (this->mStopSource.stop_requested()) {
       this->mStopCallback.reset();
       this->mPromise.unhandled_stopped();
     } else {
-      auto handles = std::views::transform(
-          std::views::all(this->mBulkTasks), &BulkTask<Promise>::mHandle);
+      auto handles =
+          std::views::transform(std::views::all(this->mBulkTasks), &BulkTask<Promise>::mHandle);
       this->mPool->enqueue_bulk(handles.begin(), handles.end());
     }
   }
@@ -220,14 +209,15 @@ private:
   std::vector<BulkTask<Promise>> mBulkTasks;
 };
 
-template <class Fn>
-class BulkSender {
+template <class Fn> class BulkSender {
 public:
-  explicit BulkSender(StaticThreadPool& pool, std::size_t count, Fn fn) : mPool(&pool), mCount(count), mFn(std::move(fn)) {}
+  explicit BulkSender(StaticThreadPool& pool, std::size_t count, Fn fn)
+      : mPool(&pool), mCount(count), mFn(std::move(fn)) {}
 
   template <class Self, class Promise>
   auto connect(this Self&& self, Promise& promise) noexcept -> BulkAwaitable<Fn, Promise> {
-    return BulkAwaitable<Fn, Promise>(self.mPool, std::forward_like<Self>(self.mFn), self.mCount, promise);
+    return BulkAwaitable<Fn, Promise>(self.mPool, std::forward_like<Self>(self.mFn), self.mCount,
+                                      promise);
   }
 
 private:

@@ -15,16 +15,16 @@ struct FrameBufferPoolContext;
 enum class Width : std::size_t {};
 enum class Height : std::size_t {};
 
+struct AvailableBuffer {
+  protocol::Buffer buffer;
+  PixelsView pixels;
+};
+
 class FrameBufferPool {
 public:
   static auto make(Client client) -> Observable<FrameBufferPool>;
 
   auto resize(Width width, Height height) -> IoTask<void>;
-
-  struct AvailableBuffer {
-    protocol::Buffer buffer;
-    PixelsView pixels;
-  };
 
   auto get_current_buffers() -> std::array<AvailableBuffer, 2>;
 

@@ -5,15 +5,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 
 namespace cw {
 
 struct FontImpl;
-struct FontImplDeleter {
-  void operator()(FontImpl* ptr) const;
-};
-
 struct FontMetrics {
   std::int32_t ascent;      // Distance from baseline to highest point
   std::int32_t descent;     // Distance from baseline to lowest point
@@ -33,10 +31,6 @@ struct GlyphMetrics {
 // Does not handle rendering - only provides metrics and glyph data
 class Font {
 public:
-  Font(Font&&) noexcept;
-  auto operator=(Font&&) noexcept -> Font&;
-  ~Font();
-
   // Get overall font metrics
   auto metrics() const -> FontMetrics;
 
@@ -58,9 +52,39 @@ public:
   auto is_valid() const -> bool;
 
 private:
-  explicit Font(std::unique_ptr<FontImpl, FontImplDeleter> impl);
+  explicit Font(std::shared_ptr<FontImpl> impl);
   friend class FontManager;
-  std::unique_ptr<FontImpl, FontImplDeleter> mImpl;
+  std::shared_ptr<FontImpl> mImpl;
+};
+
+struct FontManagerError : public std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
+
+class Font;
+
+// Manages font discovery, loading, and caching
+class FontManager {
+public:
+  FontManager();
+  FontManager(FontManager&&) noexcept;
+  auto operator=(FontManager&&) noexcept -> FontManager&;
+  ~FontManager();
+
+  auto get_default() -> Font;
+
+  // Load a font by family name and size in pixels
+  // Throws FontManagerError if font cannot be loaded
+  auto load_font(std::string_view family, std::uint32_t size_px) -> Font;
+
+  // Load a font from a specific file path
+  auto load_font_file(std::string_view path, std::uint32_t size_px) -> Font;
+
+  // Add a directory to search for fonts
+  auto add_font_directory(std::string_view path) -> void;
+
+private:
+  std::unique_ptr<struct FontManagerImpl> mImpl;
 };
 
 } // namespace cw

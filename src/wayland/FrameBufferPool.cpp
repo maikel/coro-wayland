@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: 2025 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "wayland/FrameBufferPool.hpp"
+#include "AsyncChannel.hpp"
 #include "AsyncQueue.hpp"
 #include "Strand.hpp"
 #include "coro_guard.hpp"
 #include "narrow.hpp"
+#include "observables/first.hpp"
 #include "when_all.hpp"
 #include "when_stop_requested.hpp"
 
@@ -33,6 +35,8 @@ struct FrameBufferPoolContext : ImmovableBase {
   std::span<std::uint32_t> mShmData;
   std::array<protocol::Buffer, 2> mBuffers;
   std::array<PixelsView, 2> mPixelViews;
+  std::array<AsyncChannel<AvailableBuffer>, 2> mAvailableBuffers;
+  std::size_t mNextBufferIdx{};
 
   auto get_env() const noexcept {
     struct Env {
@@ -145,9 +149,11 @@ struct FrameBufferPoolContext : ImmovableBase {
     co_await when_all(queue.pop(), queue.pop());
   }
 
-  auto get_current_buffers() -> std::array<FrameBufferPool::AvailableBuffer, 2> {
-    return {FrameBufferPool::AvailableBuffer{mBuffers[0], mPixelViews[0]},
-            FrameBufferPool::AvailableBuffer{mBuffers[1], mPixelViews[1]}};
+  auto available_buffer() -> IoTask<AvailableBuffer> {
+    AvailableBuffer buffer =
+        co_await observables::first(mAvailableBuffers[mNextBufferIdx].receive());
+    mNextBufferIdx = (mNextBufferIdx + 1) & 1;
+    co_return buffer;
   }
 };
 
@@ -159,6 +165,8 @@ auto FrameBufferPool::make(Client client) -> Observable<FrameBufferPool> {
                              std::function<auto(IoTask<FrameBufferPool>)->IoTask<void>> receiver)
         -> IoTask<void> {
       FrameBufferPoolContext context(client);
+      context.mAvailableBuffers[0] = co_await use_resource(AsyncChannel<AvailableBuffer>::make());
+      context.mAvailableBuffers[1] = co_await use_resource(AsyncChannel<AvailableBuffer>::make());
       context.mShm = co_await use_resource(client.bind<protocol::Shm>());
       context.mShmPool = co_await use_resource(context.mShm.create_pool(
           context.mShmPoolFd, narrow<int32_t>(context.mShmData.size_bytes())));
@@ -190,8 +198,8 @@ auto FrameBufferPool::resize(Width width, Height height) -> IoTask<void> {
   return mContext->resize(width, height);
 }
 
-auto FrameBufferPool::get_current_buffers() -> std::array<AvailableBuffer, 2> {
-  return mContext->get_current_buffers();
+auto FrameBufferPool::available_buffer() -> IoTask<AvailableBuffer> {
+  return mContext->available_buffer();
 }
 
 } // namespace cw

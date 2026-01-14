@@ -39,8 +39,9 @@ template <class Tp> void ManualLifetime<Tp>::destroy() noexcept {
   reinterpret_cast<Tp*>(mStorage)->~Tp();
 }
 
-template <class Tp>
-auto ManualLifetime<Tp>::get() -> Tp* { return reinterpret_cast<Tp*>(mStorage); }
+template <class Tp> auto ManualLifetime<Tp>::get() -> Tp* {
+  return reinterpret_cast<Tp*>(mStorage);
+}
 
 template <class Tp> auto ManualLifetime<Tp>::operator->() noexcept -> Tp* {
   return reinterpret_cast<Tp*>(mStorage);

@@ -31,8 +31,7 @@ public:
 
   template <class ObservableLike>
     requires(!std::same_as<std::decay_t<ObservableLike>, Observable> &&
-             std::constructible_from<std::decay_t<ObservableLike>, ObservableLike> &&
-             requires(std::decay_t<ObservableLike>& obs, ObservableReceiver receiver) {
+             requires(std::decay_t<ObservableLike>&& obs, ObservableReceiver receiver) {
                { std::move(obs).subscribe(std::move(receiver)) } -> std::same_as<IoTask<void>>;
              })
   Observable(ObservableLike&& observable) noexcept {

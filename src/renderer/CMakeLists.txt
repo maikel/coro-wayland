@@ -1,7 +1,6 @@
 find_package(Freetype REQUIRED)
 
 add_library(CoroWayland_Renderer STATIC
-    FontManager.cpp
     Font.cpp
     GlyphCache.cpp
     PixelsView.cpp

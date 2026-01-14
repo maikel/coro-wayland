@@ -5,10 +5,10 @@
 
 #include "bwos_lifo_queue.hpp"
 
-#include <ranges>
 #include <algorithm>
 #include <functional>
 #include <random>
+#include <ranges>
 
 namespace cw {
 
@@ -48,7 +48,6 @@ thread_local WrokerThreadState* tThisWorkerState = nullptr;
 auto WrokerThreadState::try_pop_remote() -> bool {
   std::ptrdiff_t nTasks = static_cast<std::ptrdiff_t>(mPool->mTasks.size());
   if (nTasks > 0) {
-    nTasks /= mPool->mWorkerThreads.size();
     auto maxCapacity =
         static_cast<std::ptrdiff_t>(mTaskQueue.block_size() * mTaskQueue.num_blocks());
     nTasks = std::clamp<std::ptrdiff_t>(nTasks, 1, maxCapacity);
@@ -90,12 +89,12 @@ void WrokerThreadState::run() noexcept {
 
     task = try_steal_task();
     if (task) {
-        {
-            std::lock_guard lock(mPool->mMutex);
-            mPool->mThiefs--;
-        }
-        task.resume();
-        continue;
+      {
+        std::lock_guard lock(mPool->mMutex);
+        mPool->mThiefs--;
+      }
+      task.resume();
+      continue;
     }
 
     {
@@ -120,7 +119,7 @@ void WrokerThreadState::run() noexcept {
 
 StaticThreadPool::StaticThreadPool(std::size_t numThreads, BwosParams params) {
   mWorkerThreads.resize(numThreads);
-    for (std::size_t i = 0; i < numThreads; ++i) {
+  for (std::size_t i = 0; i < numThreads; ++i) {
     mWorkerThreads[i].emplace(params, this);
   }
   std::vector<bwos::lifo_queue<std::coroutine_handle<>>*> queues;

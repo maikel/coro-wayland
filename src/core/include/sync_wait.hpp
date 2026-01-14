@@ -90,9 +90,7 @@ struct SyncWaitTask {
     SyncWaitStateBase* mState;
   };
 
-  ~SyncWaitTask() {
-    mHandle.destroy();
-  }
+  ~SyncWaitTask() { mHandle.destroy(); }
 
   std::coroutine_handle<promise_type> mHandle;
 };

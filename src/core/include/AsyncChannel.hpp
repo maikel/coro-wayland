@@ -23,6 +23,7 @@ template <class ValueT> class AsyncChannelContext;
 
 template <class ValueT> class AsyncChannel {
 public:
+  AsyncChannel() = default;
   static auto make() -> Observable<AsyncChannel<ValueT>>;
 
   auto send(ValueT value) -> IoTask<void>;
