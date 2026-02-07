@@ -140,7 +140,7 @@ public:
   auto get_env() const noexcept -> typename Traits::env_type;
 
 protected:
-  TaskAwaiter<Tp, Traits>* mOpState = nullptr;
+  TaskAwaiter<Tp, Traits>* mOpState{};
 };
 
 /// Promise type for tasks returning a value of type Tp
@@ -422,7 +422,7 @@ auto TaskPromiseBase<Tp, Traits>::reset_continuation(
 /// Delegates to awaiter which holds parent context.
 template <class Tp, class Traits>
 auto TaskPromiseBase<Tp, Traits>::get_env() const noexcept -> typename Traits::env_type {
-  return mOpState->get_env();
+  return mOpState->get_env(); // NOLINT
 }
 
 template <class Tp, class Traits>
@@ -452,7 +452,7 @@ auto TaskPromise<Tp, Traits>::get_return_object() noexcept -> BasicTask<Tp, Trai
 }
 
 template <class Tp, class Traits> void TaskPromise<Tp, Traits>::return_value(Tp&& value) noexcept {
-  this->mOpState->set_value(std::forward<Tp>(value));
+  this->mOpState->set_value(std::forward<Tp>(value)); // NOLINT
 }
 
 template <class Traits>
@@ -462,7 +462,7 @@ auto TaskPromise<void, Traits>::get_return_object() noexcept -> BasicTask<void, 
 }
 
 template <class Traits> void TaskPromise<void, Traits>::return_void() noexcept {
-  this->mOpState->set_value();
+  this->mOpState->set_value(); // NOLINT
 }
 
 } // namespace cw

@@ -4,13 +4,20 @@
 #include "Strand.hpp"
 
 #include "AsyncScope.hpp"
+#include "IoContext.hpp"
+#include "IoTask.hpp"
+#include "Observable.hpp"
+#include "Task.hpp"
 #include "coro_just.hpp"
-#include "just_stopped.hpp"
+#include "observables/use_resource.hpp"
 #include "queries.hpp"
 #include "read_env.hpp"
-#include "stopped_as_optional.hpp"
 
+#include <coroutine>
+#include <functional>
 #include <queue>
+#include <type_traits>
+#include <utility>
 
 namespace cw {
 
@@ -22,46 +29,30 @@ struct StrandContext {
 
 auto Strand::make() -> Observable<Strand> {
   struct StrandObservable {
-    auto subscribe(std::function<auto(IoTask<Strand>)->IoTask<void>> receiver) const noexcept
+    static auto subscribe(std::function<auto(IoTask<Strand>)->IoTask<void>> receiver) noexcept
         -> IoTask<void> {
-      IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
-      AsyncScope scope{};
-      StrandContext context{scheduler, AsyncScopeHandle{scope}, {}};
-      Strand strand{context};
-      std::exception_ptr exception = nullptr;
-      bool stopped = false;
-      try {
-        stopped =
-            !(co_await cw::stopped_as_optional(receiver(coro_just<Strand>(strand)))).has_value();
-      } catch (...) {
-        exception = std::current_exception();
-      }
-      co_await scope.close();
-      if (stopped) {
-        co_await cw::just_stopped();
-      }
-      if (exception) {
-        std::rethrow_exception(exception);
-      }
+      const IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
+      const AsyncScopeHandle scope = co_await use_resource(AsyncScope::make());
+      StrandContext context{.mScheduler = scheduler, .mScope = scope, .mQueue = {}};
+      const Strand strand{context};
+      co_await receiver(coro_just(strand));
     }
   };
   return StrandObservable{};
 }
 
-static auto lockSubscribe(StrandContext& context,
-                          std::function<auto(IoTask<void>)->IoTask<void>> receiver)
-    -> IoTask<void> {
+namespace {
+auto lock_subscribe(StrandContext& context,
+                    std::function<auto(IoTask<void>)->IoTask<void>> receiver) -> IoTask<void> {
   co_await context.mScheduler.schedule();
   if (context.mQueue.empty()) {
     context.mQueue.push(std::noop_coroutine());
   } else {
     struct Awaiter {
       static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
-      auto await_suspend(std::coroutine_handle<> handle) noexcept -> void {
-        context.mQueue.push(handle);
-      }
+      auto await_suspend(std::coroutine_handle<> handle) -> void { mContext.mQueue.push(handle); }
       auto await_resume() noexcept -> void {}
-      StrandContext& context;
+      StrandContext& mContext;
     };
     co_await Awaiter{context};
   }
@@ -75,6 +66,7 @@ static auto lockSubscribe(StrandContext& context,
     }(context));
   }
 }
+} // namespace
 
 auto Strand::lock() -> Observable<void> {
   struct LockObservable {
@@ -82,7 +74,7 @@ auto Strand::lock() -> Observable<void> {
 
     auto subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver) const noexcept
         -> IoTask<void> {
-      return lockSubscribe(*mContext, std::move(receiver));
+      return lock_subscribe(*mContext, std::move(receiver));
     }
   };
   return LockObservable{mContext};

@@ -16,6 +16,14 @@ struct Position {
 
 using Extents = std::dextents<std::size_t, 2>;
 
+
+struct Region {
+  Position position;
+  Extents size;
+
+  auto operator==(Region const&) const -> bool = default;
+};
+
 class PixelsView {
 public:
   PixelsView() = default;

@@ -15,6 +15,13 @@ class Font;
 class GlyphCache;
 
 struct Color {
+  static auto from_argb(std::uint32_t argb) -> Color {
+    return Color{.r = static_cast<std::uint8_t>((argb >> 16) & 0xFF),
+                 .g = static_cast<std::uint8_t>((argb >> 8) & 0xFF),
+                 .b = static_cast<std::uint8_t>(argb & 0xFF),
+                 .a = static_cast<std::uint8_t>((argb >> 24) & 0xFF)};
+  }
+
   std::uint8_t r, g, b, a;
 };
 

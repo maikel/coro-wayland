@@ -5,8 +5,8 @@
 
 #include "BoxConstraints.hpp"
 #include "Observable.hpp"
-#include "Polymoprhic.hpp"
 #include "PixelsView.hpp"
+#include "Polymoprhic.hpp"
 
 #include <memory>
 #include <vector>
@@ -15,20 +15,14 @@ namespace cw {
 
 class RenderContext;
 
-struct Region {
-  Position position;
-  Extents extents;
-
-  auto operator==(Region const&) const -> bool = default;
-};
-
 // Abstract base class for all UI widgets
 // Follows Flutter's constraint-based layout model
 class RenderObject {
 public:
   // Layout phase: given constraints, calculate and return size
   // Must respect constraints (return size within min/max bounds)
-  virtual auto layout(BoxConstraints constraints) -> BoxConstraints = 0;
+  virtual auto layout(const RenderContext& context, BoxConstraints constraints)
+      -> BoxConstraints = 0;
 
   // Render phase: draw self and children to context
   // redraw indicates if full redraw is needed

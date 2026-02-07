@@ -2,6 +2,11 @@
 // SPDX-FileCopyrightText: 2025 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "IoTask.hpp"
+#include "IoContext.hpp"
+#include "queries.hpp"
+
+#include <coroutine>
+#include <stop_token>
 
 namespace cw {
 
@@ -27,11 +32,11 @@ void IoTaskContextBase::set_stopped() noexcept { mVtable->set_stopped(mPromise);
 
 IoTaskEnv::IoTaskEnv(const IoTaskContextBase* context) noexcept : mContext(context) {}
 
-auto IoTaskEnv::query(get_stop_token_t) const noexcept -> std::stop_token {
+auto IoTaskEnv::query(get_stop_token_t /*unused*/) const noexcept -> std::stop_token {
   return mContext->get_stop_token();
 }
 
-auto IoTaskEnv::query(get_scheduler_t) const noexcept -> IoScheduler {
+auto IoTaskEnv::query(get_scheduler_t /*unused*/) const noexcept -> IoScheduler {
   return mContext->get_scheduler();
 }
 

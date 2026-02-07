@@ -7,6 +7,7 @@
 #include "ImmovableBase.hpp"
 #include "IoTask.hpp"
 #include "Observable.hpp"
+#include "coro_guard.hpp"
 #include "coro_just.hpp"
 #include "just_stopped.hpp"
 #include "observables/use_resource.hpp"
@@ -26,7 +27,10 @@ public:
   AsyncChannel() = default;
   static auto make() -> Observable<AsyncChannel<ValueT>>;
 
-  auto send(ValueT value) -> IoTask<void>;
+  auto send(typename ValueOrMonostateType<ValueT>::type value) -> IoTask<void>;
+
+  auto send() -> IoTask<void>
+    requires std::is_void_v<ValueT>;
 
   auto receive() -> Observable<ValueT>;
 
@@ -42,7 +46,7 @@ public:
 
   IoScheduler mScheduler;
   AsyncScopeHandle mScope;
-  std::optional<ValueT> mValue;
+  std::optional<typename ValueOrMonostateType<ValueT>::type> mValue;
   std::coroutine_handle<TaskPromise<void, IoTaskTraits>> mContinuation;
 };
 
@@ -60,7 +64,8 @@ template <class ValueT> auto AsyncChannel<ValueT>::make() -> Observable<AsyncCha
   return AsyncChannelObservable{};
 }
 
-template <class ValueT> auto AsyncChannel<ValueT>::send(ValueT value) -> IoTask<void> {
+template <class ValueT>
+auto AsyncChannel<ValueT>::send(typename ValueOrMonostateType<ValueT>::type value) -> IoTask<void> {
   co_await mContext->mScope.nest([](AsyncChannel self, ValueT value) -> IoTask<void> {
     co_await self.mContext->mScheduler.schedule();
     if (self.mContext->mValue.has_value()) {
@@ -115,28 +120,20 @@ template <class ValueT> auto AsyncChannel<ValueT>::receive() -> Observable<Value
       co_await self.mContext->mScheduler.schedule();
       while (true) {
         if (self.mContext->mValue.has_value()) {
-          ValueT value = std::move(self.mContext->mValue).value();
+          auto value = [&] {
+            if constexpr (std::is_void_v<ValueT>) {
+              return coro_just_void();
+            } else {
+              return coro_just(std::move(self.mContext->mValue).value());
+            }
+          }();
           self.mContext->mValue.reset();
           auto sender = std::exchange(self.mContext->mContinuation, nullptr);
-          bool success = true;
-          std::exception_ptr exception = nullptr;
-          try {
-            success = (co_await stopped_as_optional(receiver(coro_just<ValueT>(std::move(value)))))
-                          .has_value();
-          } catch (...) {
-            exception = std::current_exception();
-          }
-          co_await self.mContext->mScheduler.schedule();
-          if (!success || exception) {
-            if (sender) {
-              sender.promise().unhandled_stopped();
-            }
-            if (exception) {
-              std::rethrow_exception(exception);
-            }
-            co_return;
-          }
-          sender.resume();
+          co_await coro_guard([](auto sender, IoScheduler scheduler) -> IoTask<void> {
+            co_await scheduler.schedule();
+            sender.resume();
+          }(sender, self.mContext->mScheduler));
+          co_await receiver(std::move(value));
         } else {
           struct ReceiveAwaitable : ImmovableBase {
             struct OnStopRequested {

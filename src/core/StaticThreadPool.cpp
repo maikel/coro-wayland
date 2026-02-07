@@ -6,21 +6,36 @@
 #include "bwos_lifo_queue.hpp"
 
 #include <algorithm>
-#include <functional>
+#include <coroutine>
+#include <cstddef>
+#include <mutex>
 #include <random>
-#include <ranges>
+#include <thread>
+#include <vector>
 
 namespace cw {
 
-struct WrokerThreadState {
-  std::thread mThread;
+struct WorkerThreadState {
   bwos::lifo_queue<std::coroutine_handle<>> mTaskQueue;
-  std::vector<bwos::lifo_queue<std::coroutine_handle<>>*> mVictims;
+  std::thread mThread;
   StaticThreadPool* mPool;
+  std::vector<bwos::lifo_queue<std::coroutine_handle<>>*> mVictims;
   std::mt19937 mRng{std::random_device{}()};
 
-  explicit WrokerThreadState(BwosParams params, StaticThreadPool* pool) noexcept
+  explicit WorkerThreadState(BwosParams params, StaticThreadPool* pool)
       : mTaskQueue(params.numBlocks, params.blockSize), mPool(pool) {}
+
+  WorkerThreadState(const WorkerThreadState&) = delete;
+  auto operator=(const WorkerThreadState&) -> WorkerThreadState& = delete;
+
+  WorkerThreadState(WorkerThreadState&&) = delete;
+  auto operator=(WorkerThreadState&&) -> WorkerThreadState& = delete;
+
+  ~WorkerThreadState() {
+    if (mThread.joinable()) {
+      mThread.join();
+    }
+  }
 
   void set_victims(const std::vector<bwos::lifo_queue<std::coroutine_handle<>>*>& victims) {
     for (auto* victim : victims) {
@@ -35,20 +50,16 @@ struct WrokerThreadState {
   auto try_steal_task() noexcept -> std::coroutine_handle<>;
 
   void run() noexcept;
-
-  ~WrokerThreadState() {
-    if (mThread.joinable()) {
-      mThread.join();
-    }
-  }
 };
 
-thread_local WrokerThreadState* tThisWorkerState = nullptr;
+namespace {
+thread_local WorkerThreadState* tThisWorkerState = nullptr;
+}
 
-auto WrokerThreadState::try_pop_remote() -> bool {
-  std::ptrdiff_t nTasks = static_cast<std::ptrdiff_t>(mPool->mTasks.size());
+auto WorkerThreadState::try_pop_remote() -> bool {
+  auto nTasks = static_cast<std::ptrdiff_t>(mPool->mTasks.size());
   if (nTasks > 0) {
-    auto maxCapacity =
+    const auto maxCapacity =
         static_cast<std::ptrdiff_t>(mTaskQueue.block_size() * mTaskQueue.num_blocks());
     nTasks = std::clamp<std::ptrdiff_t>(nTasks, 1, maxCapacity);
     auto start = mPool->mTasks.end() - nTasks;
@@ -59,7 +70,7 @@ auto WrokerThreadState::try_pop_remote() -> bool {
   return false;
 }
 
-auto WrokerThreadState::try_steal_task() noexcept -> std::coroutine_handle<> {
+auto WorkerThreadState::try_steal_task() noexcept -> std::coroutine_handle<> {
   std::shuffle(mVictims.begin(), mVictims.end(), mRng);
   for (auto* victim : mVictims) {
     auto task = victim->steal_front();
@@ -70,7 +81,7 @@ auto WrokerThreadState::try_steal_task() noexcept -> std::coroutine_handle<> {
   return nullptr;
 }
 
-void WrokerThreadState::run() noexcept {
+void WorkerThreadState::run() noexcept {
   tThisWorkerState = this;
   while (true) {
     std::coroutine_handle<> task = mTaskQueue.pop_back();
@@ -80,7 +91,7 @@ void WrokerThreadState::run() noexcept {
     }
 
     {
-      std::lock_guard lock(mPool->mMutex);
+      const std::lock_guard lock(mPool->mMutex);
       if (try_pop_remote()) {
         continue;
       }
@@ -90,7 +101,7 @@ void WrokerThreadState::run() noexcept {
     task = try_steal_task();
     if (task) {
       {
-        std::lock_guard lock(mPool->mMutex);
+        const std::lock_guard lock(mPool->mMutex);
         mPool->mThiefs--;
       }
       task.resume();
@@ -131,13 +142,13 @@ StaticThreadPool::StaticThreadPool(std::size_t numThreads, BwosParams params) {
     worker->set_victims(queues);
   }
   for (auto& worker : mWorkerThreads) {
-    worker->mThread = std::thread(&WrokerThreadState::run, worker.get());
+    worker->mThread = std::thread(&WorkerThreadState::run, worker.get());
   }
 }
 
 StaticThreadPool::~StaticThreadPool() {
   {
-    std::lock_guard lock(mMutex);
+    const std::lock_guard lock(mMutex);
     mStopping = true;
     mCondition.notify_all();
   }
@@ -149,11 +160,11 @@ StaticThreadPool::~StaticThreadPool() {
 }
 
 auto StaticThreadPool::enqueue(std::coroutine_handle<> handle) -> void {
-  if (tThisWorkerState && tThisWorkerState->mTaskQueue.push_back(handle)) {
+  if (tThisWorkerState != nullptr && tThisWorkerState->mTaskQueue.push_back(handle)) {
     return;
   }
   {
-    std::lock_guard lock(mMutex);
+    const std::lock_guard lock(mMutex);
     mTasks.push_back(handle);
   }
   mCondition.notify_one();

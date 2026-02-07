@@ -21,7 +21,7 @@ public:
 
   auto attach(protocol::Buffer buffer) -> void;
 
-  auto damage(Position position, Extents extents) -> void;
+  auto damage(Region region) -> void;
 
   auto frame() -> IoTask<void>;
 

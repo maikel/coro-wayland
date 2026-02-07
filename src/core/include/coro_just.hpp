@@ -13,4 +13,9 @@ template <class ValueT> auto coro_just(ValueT value) -> IoTask<ValueT> {
 
 inline auto coro_just_void() -> IoTask<void> { co_return; }
 
+template <class Sender> auto ignore_result(Sender sndr) -> IoTask<void> {
+  co_await std::move(sndr);
+  co_return;
+}
+
 } // namespace cw

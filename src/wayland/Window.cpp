@@ -47,7 +47,7 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
         auto regions = rootRenderObject->render(renderContext);
         windowSurface.attach(available.buffer);
         for (const auto& region : regions) {
-          windowSurface.damage(region.position, region.extents);
+          windowSurface.damage(region);
         }
         windowSurface.commit();
       });
@@ -60,7 +60,8 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
             auto available = co_await frameBufferPool.available_buffer();
             BoxConstraints constraints = BoxConstraints::loose(
                 Size{narrow<std::size_t>(event.width), narrow<std::size_t>(event.height)});
-            BoxConstraints newConstraints = rootRenderObject->layout(constraints);
+            RenderContext fullContext{available.pixels, textRenderer};
+            BoxConstraints newConstraints = rootRenderObject->layout(fullContext, constraints);
             PixelsView pixels =
                 available.pixels.subview(Position{0, 0}, Extents{newConstraints.biggest().width,
                                                                  newConstraints.biggest().height});
@@ -68,7 +69,7 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
             auto regions = rootRenderObject->render(renderContext);
             windowSurface.attach(available.buffer);
             for (const auto& region : regions) {
-              windowSurface.damage(region.position, region.extents);
+              windowSurface.damage(region);
             }
           });
 

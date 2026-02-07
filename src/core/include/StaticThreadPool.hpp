@@ -19,7 +19,7 @@ struct BwosParams {
   std::size_t blockSize;
 };
 
-struct WrokerThreadState;
+struct WorkerThreadState;
 
 template <class Fn> class BulkSender;
 
@@ -48,8 +48,8 @@ public:
   template <class Fn> auto schedule_bulk(std::size_t count, Fn fn) -> BulkSender<Fn>;
 
 private:
-  friend struct WrokerThreadState;
-  std::vector<ManualLifetime<WrokerThreadState>> mWorkerThreads;
+  friend struct WorkerThreadState;
+  std::vector<ManualLifetime<WorkerThreadState>> mWorkerThreads;
   std::mutex mMutex;
   std::condition_variable mCondition;
   std::vector<std::coroutine_handle<>> mTasks;

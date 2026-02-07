@@ -107,15 +107,15 @@ public:
   void set_stopped() noexcept;
 
 private:
-  const IoTaskContextVtable* mVtable;
-  void* mPromise;
+  const IoTaskContextVtable* mVtable{};
+  void* mPromise{};
 };
 
 /// Environment for task execution providing stop token queries.
 /// Encapsulates cancellation state propagated from parent coroutines.
 class IoTaskEnv {
 private:
-  const IoTaskContextBase* mContext;
+  const IoTaskContextBase* mContext{};
 
 public:
   explicit IoTaskEnv(const IoTaskContextBase* context) noexcept;

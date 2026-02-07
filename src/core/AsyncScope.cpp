@@ -2,9 +2,15 @@
 // SPDX-FileCopyrightText: 2026 Maikel Nadolski <maikel.nadolski@gmail.com>
 
 #include "AsyncScope.hpp"
+#include "IoTask.hpp"
+#include "Observable.hpp"
+#include "coro_guard.hpp"
 #include "coro_just.hpp"
-#include "just_stopped.hpp"
-#include "stopped_as_optional.hpp"
+
+#include <atomic>
+#include <coroutine>
+#include <functional>
+#include <utility>
 
 namespace cw {
 
@@ -24,21 +30,9 @@ auto AsyncScope::close() noexcept -> CloseAwaitable { return CloseAwaitable{*thi
 struct AsyncScopeObservable {
   template <class Receiver> auto subscribe(Receiver receiver) const noexcept -> IoTask<void> {
     AsyncScope scope;
-    bool stopped = false;
-    std::exception_ptr exception = nullptr;
-    try {
-      AsyncScopeHandle handle{scope};
-      stopped = !(co_await cw::stopped_as_optional(receiver(coro_just(handle)))).has_value();
-    } catch (...) {
-      exception = std::current_exception();
-    }
-    co_await scope.close();
-    if (stopped) {
-      co_await cw::just_stopped();
-    }
-    if (exception) {
-      std::rethrow_exception(exception);
-    }
+    co_await coro_guard(scope.close());
+    const AsyncScopeHandle handle{scope};
+    co_await receiver(coro_just(handle));
   }
 };
 
@@ -48,11 +42,12 @@ auto AsyncScope::make() -> Observable<AsyncScopeHandle> { return create_scope();
 
 NestObservable::NestObservable(AsyncScope& scope) noexcept : mScope(&scope) {}
 
-static auto nest_subscribe(AsyncScope& scope,
-                           std::function<auto(IoTask<void>)->IoTask<void>> receiver)
+namespace {
+auto nest_subscribe(AsyncScope& scope, std::function<auto(IoTask<void>)->IoTask<void>> receiver)
     -> IoTask<void> {
   co_await scope.nest(receiver(coro_just_void()));
 }
+} // namespace
 
 auto NestObservable::subscribe(std::function<auto(IoTask<void>)->IoTask<void>> receiver)
     -> IoTask<void> {

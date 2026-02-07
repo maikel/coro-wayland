@@ -5,6 +5,8 @@
 
 #include "ImmovableBase.hpp"
 #include "Observable.hpp"
+#include "when_any.hpp"
+#include "when_stop_requested.hpp"
 
 #include <atomic>
 #include <coroutine>
@@ -308,5 +310,47 @@ template <class Sender> auto AsyncScope::nest(Sender&& sender) -> NestSender<Sen
 template <class Sender> auto AsyncScopeHandle::nest(Sender&& sender) -> NestSender<Sender> {
   return NestSender<Sender>{std::forward<Sender>(sender), *mScope};
 }
+
+class StoppableScopeContext;
+
+struct StoppableScopeEnv {
+  const StoppableScopeContext* mContext;
+
+  auto query(cw::get_scheduler_t) const noexcept -> IoScheduler;
+
+  auto query(cw::get_stop_token_t) const noexcept -> std::stop_token;
+};
+
+class StoppableScopeContext {
+public:
+  StoppableScopeContext(IoScheduler scheduler) noexcept : mScheduler(scheduler) {}
+
+  auto get_env() const noexcept -> StoppableScopeEnv;
+
+  AsyncScope mScope;
+  IoScheduler mScheduler;
+  std::stop_source mStopSource;
+};
+
+class StoppableScope {
+public:
+  static auto make() -> Observable<StoppableScope>;
+
+  template <class Sender> auto spawn(Sender&& sndr) -> void {
+    mContext->mScope.spawn(std::forward<Sender>(sndr), mContext->get_env());
+  }
+
+  template <class Sender> auto nest(Sender&& sndr) {
+    using Tp = await_result_t<std::remove_cvref_t<Sender>, PromiseWithEnv<IoTaskEnv>>;
+    auto stoppedSender = when_any(std::forward<Sender>(sndr),
+                                  when_stop_requested(mContext->mStopSource.get_token()));
+    return mContext->mScope.nest([](std::remove_cvref_t<Sender> sender) -> IoTask<Tp> {
+      co_return std::get<0>(co_await std::move(sender));
+    }(std::move(stoppedSender)));
+  }
+
+private:
+  StoppableScopeContext* mContext;
+};
 
 } // namespace cw
