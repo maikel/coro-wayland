@@ -66,7 +66,8 @@ template <class ValueT> auto AsyncChannel<ValueT>::make() -> Observable<AsyncCha
 
 template <class ValueT>
 auto AsyncChannel<ValueT>::send(typename ValueOrMonostateType<ValueT>::type value) -> IoTask<void> {
-  co_await mContext->mScope.nest([](AsyncChannel self, ValueT value) -> IoTask<void> {
+  co_await mContext->mScope.nest([](AsyncChannel self, 
+                                     typename ValueOrMonostateType<ValueT>::type value) -> IoTask<void> {
     co_await self.mContext->mScheduler.schedule();
     if (self.mContext->mValue.has_value()) {
       throw std::runtime_error("AsyncChannel buffer overflow: value already present");
@@ -82,6 +83,7 @@ auto AsyncChannel<ValueT>::send(typename ValueOrMonostateType<ValueT>::type valu
                    std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) -> Task<void> {
                   co_await self.mContext->mScheduler.schedule();
                   if (self.mContext->mContinuation == handle) {
+                    self.mContext->mValue.reset();
                     self.mContext->mContinuation = nullptr;
                     handle.promise().unhandled_stopped();
                   }
@@ -95,6 +97,7 @@ auto AsyncChannel<ValueT>::send(typename ValueOrMonostateType<ValueT>::type valu
       static constexpr auto await_ready() noexcept -> std::false_type { return {}; }
       auto await_suspend(std::coroutine_handle<TaskPromise<void, IoTaskTraits>> handle) noexcept
           -> std::coroutine_handle<> {
+        mHandle = handle;
         mStopCallback.emplace(cw::get_stop_token(cw::get_env(handle.promise())),
                               OnStopRequested{this});
         if (auto receiver = std::exchange(self.mContext->mContinuation, handle); receiver) {
@@ -109,6 +112,13 @@ auto AsyncChannel<ValueT>::send(typename ValueOrMonostateType<ValueT>::type valu
     };
     co_await SendAwaitable{{}, self, nullptr, std::nullopt};
   }(*this, std::move(value)));
+}
+
+template <class ValueT>
+auto AsyncChannel<ValueT>::send() -> IoTask<void>
+  requires std::is_void_v<ValueT>
+{
+  return send(std::monostate{});
 }
 
 template <class ValueT> auto AsyncChannel<ValueT>::receive() -> Observable<ValueT> {

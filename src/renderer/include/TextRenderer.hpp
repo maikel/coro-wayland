@@ -22,6 +22,16 @@ struct Color {
                  .a = static_cast<std::uint8_t>((argb >> 24) & 0xFF)};
   }
 
+  auto to_argb() const -> std::uint32_t {
+    return (static_cast<std::uint32_t>(a) << 24) | (static_cast<std::uint32_t>(r) << 16) |
+           (static_cast<std::uint32_t>(g) << 8) | static_cast<std::uint32_t>(b);
+  }
+
+  auto to_rgba() const -> std::uint32_t {
+    return (static_cast<std::uint32_t>(r) << 24) | (static_cast<std::uint32_t>(g) << 16) |
+           (static_cast<std::uint32_t>(b) << 8) | static_cast<std::uint32_t>(a);
+  }
+
   std::uint8_t r, g, b, a;
 };
 

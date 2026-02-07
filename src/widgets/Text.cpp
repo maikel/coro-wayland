@@ -45,7 +45,7 @@ struct TextRenderObject final : RenderObject {
     } else {
       return {};
     }
-    Offset offset{.x = 0, .y = 0};
+    Position offset{.x = 0, .y = 0};
     context.draw_text(mContext->mProperties.font, mContext->mProperties.text, offset,
                       Color::from_argb(mContext->mProperties.color));
     return {Region{{0, 0}, context.buffer_size()}};

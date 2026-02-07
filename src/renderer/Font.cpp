@@ -214,6 +214,6 @@ auto FontManager::add_font_directory(std::string_view path) -> void {
   mImpl->font_directories.push_back(path);
 }
 
-auto FontManager::get_default() -> Font { return load_font_file("Dejavu Sans Mono", 12); }
+auto FontManager::get_default() -> Font { return load_font("Dejavu Sans Mono", 12); }
 
 } // namespace cw

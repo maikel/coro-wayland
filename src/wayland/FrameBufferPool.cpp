@@ -128,7 +128,12 @@ struct FrameBufferPoolContext : ImmovableBase {
       protocol::Buffer buffer = co_await std::move(bufferTask);
       mBuffers[0] = buffer;
       co_await queue.push(0);
-      co_await when_stop_requested();
+      co_await mAvailableBuffers[0].send(AvailableBuffer{buffer, mPixelViews[0]});
+      co_await buffer.events().subscribe(
+          [&](IoTask<std::variant<protocol::Buffer::ReleaseEvent>> eventTask) -> IoTask<void> {
+            co_await std::move(eventTask);
+            co_await mAvailableBuffers[0].send(AvailableBuffer{buffer, mPixelViews[0]});
+          });
       buffer.destroy();
     };
 
@@ -136,7 +141,12 @@ struct FrameBufferPoolContext : ImmovableBase {
       protocol::Buffer buffer = co_await std::move(bufferTask);
       mBuffers[1] = buffer;
       co_await queue.push(1);
-      co_await when_stop_requested();
+      co_await mAvailableBuffers[1].send(AvailableBuffer{buffer, mPixelViews[1]});
+      co_await buffer.events().subscribe(
+          [&](IoTask<std::variant<protocol::Buffer::ReleaseEvent>> eventTask) -> IoTask<void> {
+            co_await std::move(eventTask);
+            co_await mAvailableBuffers[1].send(AvailableBuffer{buffer, mPixelViews[1]});
+          });
       buffer.destroy();
     };
 

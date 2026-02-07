@@ -76,6 +76,10 @@ auto TextRenderer::draw_text(PixelsView pixels, Font const& font, std::string_vi
   if (!font.is_valid())
     return;
 
+  // Calculate baseline position: use the font's ascent as the baseline y
+  FontMetrics font_metrics = font.metrics();
+  std::int32_t baseline_y = font_metrics.ascent;
+
   std::int32_t cursor_x = 0;
   std::uint32_t prev_glyph = 0;
 
@@ -94,7 +98,7 @@ auto TextRenderer::draw_text(PixelsView pixels, Font const& font, std::string_vi
     CachedGlyph glyph = mImpl->cache->get(font, glyph_index);
 
     // Draw glyph
-    mImpl->draw_glyph(pixels, glyph, cursor_x, 24, color);
+    mImpl->draw_glyph(pixels, glyph, cursor_x, baseline_y, color);
 
     // Advance cursor
     cursor_x += glyph.metrics.advance_x;

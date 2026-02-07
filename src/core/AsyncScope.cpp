@@ -6,6 +6,7 @@
 #include "Observable.hpp"
 #include "coro_guard.hpp"
 #include "coro_just.hpp"
+#include "read_env.hpp"
 
 #include <atomic>
 #include <coroutine>
@@ -57,5 +58,31 @@ auto NestObservable::subscribe(std::function<auto(IoTask<void>)->IoTask<void>> r
 auto AsyncScope::nest() -> NestObservable { return NestObservable{*this}; }
 
 auto AsyncScopeHandle::nest() -> NestObservable { return NestObservable{*mScope}; }
+
+auto StoppableScopeEnv::query(cw::get_scheduler_t) const noexcept -> IoScheduler {
+  return mContext->mScheduler;
+}
+
+auto StoppableScopeEnv::query(cw::get_stop_token_t) const noexcept -> std::stop_token {
+  return mContext->mStopSource.get_token();
+}
+
+auto StoppableScopeContext::get_env() const noexcept -> StoppableScopeEnv {
+  return StoppableScopeEnv{this};
+}
+
+auto StoppableScope::make() -> Observable<StoppableScope> {
+  struct StoppableScopeObservable {
+    static auto subscribe(std::function<auto(IoTask<StoppableScope>)->IoTask<void>> receiver) noexcept
+        -> IoTask<void> {
+      const IoScheduler scheduler = co_await cw::read_env(cw::get_scheduler);
+      StoppableScopeContext context{scheduler};
+      co_await coro_guard(context.mScope.close());
+      const StoppableScope scope{context};
+      co_await receiver(coro_just(scope));
+    }
+  };
+  return StoppableScopeObservable{};
+}
 
 } // namespace cw

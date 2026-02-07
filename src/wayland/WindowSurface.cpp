@@ -4,7 +4,9 @@
 #include "wayland/WindowSurface.hpp"
 
 #include "AsyncChannel.hpp"
+#include "just_stopped.hpp"
 #include "narrow.hpp"
+#include "stopped_as_optional.hpp"
 #include "wayland/XdgShell.hpp"
 #include "when_any.hpp"
 #include "when_stop_requested.hpp"
@@ -82,9 +84,9 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
           xdgWmBase.events().subscribe(
               [&](IoTask<std::variant<protocol::XdgWmBase::PingEvent>> eventTask) -> IoTask<void> {
                 auto event = std::get<0>(co_await std::move(eventTask));
-                // Log::i("Received XdgWmBase::PingEvent with serial {}", event.serial);
+                Log::i("Received XdgWmBase::PingEvent with serial {}", event.serial);
                 xdgWmBase.pong(event.serial);
-                // Log::i("Sent XdgWmBase::Pong for serial {}", event.serial);
+                Log::i("Sent XdgWmBase::Pong for serial {}", event.serial);
               }),
           context.get_env());
 
@@ -92,8 +94,8 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
                       [&](IoTask<std::variant<protocol::XdgSurface::ConfigureEvent>> eventTask)
                           -> IoTask<void> {
                         auto event = std::get<0>(co_await std::move(eventTask));
-                        // Log::i("Received from QUEUE XdgSurface::ConfigureEvent with serial {}",
-                        //        event.serial);
+                        Log::i("Received from QUEUE XdgSurface::ConfigureEvent with serial {}",
+                               event.serial);
                         co_await configureChannel.send(event);
                       }),
                   context.get_env());
@@ -103,26 +105,26 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
             auto event = co_await std::move(eventTask);
             switch (event.index()) {
             case protocol::XdgToplevel::ConfigureEvent::index: {
-              // Log::i("Received from QUEUE XdgToplevel::ConfigureEvent with size {}x{}",
-              //        std::get<protocol::XdgToplevel::ConfigureEvent>(event).width,
-              //        std::get<protocol::XdgToplevel::ConfigureEvent>(event).height);
+              Log::i("Received from QUEUE XdgToplevel::ConfigureEvent with size {}x{}",
+                     std::get<protocol::XdgToplevel::ConfigureEvent>(event).width,
+                     std::get<protocol::XdgToplevel::ConfigureEvent>(event).height);
               co_await configureChannel.send(
                   std::get<protocol::XdgToplevel::ConfigureEvent>(event));
               break;
             }
             case protocol::XdgToplevel::CloseEvent::index: {
-              // Log::i("Received from QUEUE XdgToplevel::CloseEvent");
+              Log::i("Received from QUEUE XdgToplevel::CloseEvent");
               co_await closeChannel.send(std::get<protocol::XdgToplevel::CloseEvent>(event));
               break;
             }
             case protocol::XdgToplevel::ConfigureBoundsEvent::index: {
-              // Log::i("Received from QUEUE XdgToplevel::ConfigureBoundsEvent with size {}x{}",
-              //        std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).width,
-              //        std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).height);
+              Log::i("Received from QUEUE XdgToplevel::ConfigureBoundsEvent with size {}x{}",
+                     std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).width,
+                     std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).height);
               break;
             }
             case protocol::XdgToplevel::WmCapabilitiesEvent::index: {
-              // Log::i("Received from QUEUE XdgToplevel::WmCapabilitiesEvent");
+              Log::i("Received from QUEUE XdgToplevel::WmCapabilitiesEvent");
               break;
             }
             default:
@@ -136,14 +138,14 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
             auto event = co_await std::move(eventTask);
             switch (event.index()) {
             case protocol::Seat::CapabilitiesEvent::index: {
-              // auto capabilitiesEvent = std::get<protocol::Seat::CapabilitiesEvent>(event);
-              // Log::i("Received Seat::CapabilitiesEvent with capabilities bitmask {}",
-              //        capabilitiesEvent.capabilities);
+              auto capabilitiesEvent = std::get<protocol::Seat::CapabilitiesEvent>(event);
+              Log::i("Received Seat::CapabilitiesEvent with capabilities bitmask {}",
+                     capabilitiesEvent.capabilities);
               break;
             }
             case protocol::Seat::NameEvent::index: {
-              // auto nameEvent = std::get<protocol::Seat::NameEvent>(event);
-              // Log::i("Received Seat::NameEvent with name '{}'", nameEvent.name);
+              auto nameEvent = std::get<protocol::Seat::NameEvent>(event);
+              Log::i("Received Seat::NameEvent with name '{}'", nameEvent.name);
               break;
             }
             default:
@@ -157,15 +159,15 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
             auto event = co_await std::move(eventTask);
             switch (event.index()) {
             case protocol::Pointer::MotionEvent::index: {
-              // auto motionEvent = std::get<protocol::Pointer::MotionEvent>(event);
-              // Log::i("Received Pointer::MotionEvent at position ({}, {})",
-              //        motionEvent.surface_x / 256, motionEvent.surface_y / 256);
+              auto motionEvent = std::get<protocol::Pointer::MotionEvent>(event);
+              Log::i("Received Pointer::MotionEvent at position ({}, {})",
+                     motionEvent.surface_x / 256, motionEvent.surface_y / 256);
               break;
             }
             case protocol::Pointer::ButtonEvent::index: {
-              // auto buttonEvent = std::get<protocol::Pointer::ButtonEvent>(event);
-              // Log::i("Received Pointer::ButtonEvent for button {} with state {}",
-              //        buttonEvent.button, buttonEvent.state);
+              auto buttonEvent = std::get<protocol::Pointer::ButtonEvent>(event);
+              Log::i("Received Pointer::ButtonEvent for button {} with state {}",
+                     buttonEvent.button, buttonEvent.state);
               break;
             }
             default:
@@ -225,6 +227,16 @@ auto WindowSurface::damage(Region region) -> void {
 
 auto WindowSurface::close_events() -> Observable<protocol::XdgToplevel::CloseEvent> {
   return mContext->receive_close_events();
+}
+
+auto WindowSurface::commit() -> void {
+  mContext->mSurface.commit(); 
+}
+
+auto WindowSurface::frame() -> IoTask<void> {
+  cw::protocol::Callback callback = co_await use_resource(mContext->mSurface.frame());
+  co_await stopped_as_optional(callback.events().subscribe(
+      [&](auto /* eventTask */) -> IoTask<void> { co_await just_stopped(); }));
 }
 
 } // namespace cw

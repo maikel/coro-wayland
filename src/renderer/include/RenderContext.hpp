@@ -3,20 +3,14 @@
 
 #pragma once
 
-#include "BoxConstraints.hpp"
 #include "PixelsView.hpp"
+#include "TextRenderer.hpp"
 
 #include <cstdint>
 #include <mdspan>
 #include <string_view>
 
 namespace cw {
-
-class Font;
-class GlyphCache;
-class TextRenderer;
-
-struct Color;
 
 // Provides rendering primitives and manages rendering state
 class RenderContext {
@@ -27,7 +21,7 @@ public:
   auto measure_text(Font const& font, std::string_view text) const -> Extents;
 
   // Draw text at absolute position
-  auto draw_text(Font const& font, std::string_view text, Offset position, Color color) -> void;
+  auto draw_text(Font const& font, std::string_view text, Position position, Color color) -> void;
 
   // Fill rectangle with solid color
   auto fill_rect(Region region, Color color) -> void;

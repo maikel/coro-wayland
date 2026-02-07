@@ -38,7 +38,11 @@ public:
 
   auto data() const -> std::uint32_t*;
 
+  auto extents() const -> Extents;
+
   auto row_stride() const -> std::size_t;
+
+  auto subview(Position pos) const -> PixelsView;
 
   auto subview(Position pos, Extents extents) const -> PixelsView;
 

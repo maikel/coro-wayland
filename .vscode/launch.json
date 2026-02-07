@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch wayland_app",
-            "program": "${workspaceFolder}/build/src/wayland/wayland_app",
+            "program": "${workspaceFolder}/build/tsan/src/wayland/wayland_app",
             "args": [],
             "cwd": "${workspaceFolder}"
         },

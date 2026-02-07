@@ -31,7 +31,7 @@ template <std::size_t N> struct WhenStopRequestedAwaiter : ImmovableBase {
     explicit OnStopRequested(std::shared_ptr<State> state) noexcept : mState(std::move(state)) {}
 
     void operator()() noexcept {
-      if (mState->mStopRequested.test_and_set()) {
+      if (!mState->mStopRequested.test_and_set()) {
         std::shared_ptr<State> state = std::move(mState);
         state->mStopCallbacks.reset();
         state->mHandle.resume();

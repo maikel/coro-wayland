@@ -8,18 +8,18 @@
 
 namespace cw {
 
-struct Size {
-  std::size_t width = 0;
-  std::size_t height = 0;
-
-  auto operator==(Size const&) const -> bool = default;
-};
-
 struct Offset {
   std::int32_t x = 0;
   std::int32_t y = 0;
 
   auto operator==(Offset const&) const -> bool = default;
+};
+
+struct Size {
+  std::size_t width = 0;
+  std::size_t height = 0;
+
+  auto operator==(Size const&) const -> bool = default;
 };
 
 struct Rect {

@@ -350,6 +350,7 @@ public:
   }
 
 private:
+  explicit StoppableScope(StoppableScopeContext& context) noexcept : mContext(&context) {}
   StoppableScopeContext* mContext;
 };
 
