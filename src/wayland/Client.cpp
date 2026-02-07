@@ -71,8 +71,6 @@ public:
       case protocol::Registry::GlobalEvent::index: {
         protocol::Registry::GlobalEvent globalEvent =
             std::get<protocol::Registry::GlobalEvent>(event);
-        Log::d("Wayland Registry Global Event: name={}, interface=\"{}\", version={}",
-               globalEvent.name, globalEvent.interface, globalEvent.version);
         co_await globals.emplace(globalEvent.interface, std::move(globalEvent));
         break;
       }

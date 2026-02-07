@@ -10,6 +10,13 @@
 
 namespace cw {
 
+template <class... Fn> class Overloaded : Fn... {
+public:
+  Overloaded(Fn... fn) : Fn(fn)... {}
+
+  using Fn::operator()...;
+};
+
 template <class ValueType> struct ValueOrMonostateType {
   using type = ValueType;
 };

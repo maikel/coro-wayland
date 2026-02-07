@@ -20,7 +20,8 @@
 using namespace cw;
 
 auto coro_main(FontManager& fonts) -> IoTask<void> {
-  Text helloWorld(fonts.get_default(), "Hallo, Welt!", 0xFF00FF00);
+  auto font = fonts.load_font("DejaVu Sans", 48);
+  Text helloWorld(font, "Hallo, Welt!", 0xFF00FF00);
   [[maybe_unused]] Window window = co_await use_resource(Window::make(std::move(helloWorld)));
   co_await when_stop_requested();
 }

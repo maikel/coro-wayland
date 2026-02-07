@@ -4,14 +4,13 @@
 #include "wayland/WindowSurface.hpp"
 
 #include "AsyncChannel.hpp"
+#include "AsyncQueue.hpp"
 #include "just_stopped.hpp"
 #include "narrow.hpp"
 #include "stopped_as_optional.hpp"
 #include "wayland/XdgShell.hpp"
 #include "when_any.hpp"
 #include "when_stop_requested.hpp"
-
-#include "Logging.hpp"
 
 #include <stop_token>
 
@@ -21,9 +20,15 @@ struct WindowSurfaceContext {
   Client mClient;
   protocol::Compositor mCompositor;
   protocol::Surface mSurface;
+  AsyncChannel<protocol::XdgToplevel::ConfigureBoundsEvent> mConfigureBoundsChannel;
   AsyncChannel<protocol::XdgToplevel::ConfigureEvent> mConfigureChannel;
   AsyncChannel<protocol::XdgToplevel::CloseEvent> mCloseChannel;
   std::stop_source mStopSource{};
+
+  auto receive_configure_bounds_events()
+      -> Observable<protocol::XdgToplevel::ConfigureBoundsEvent> {
+    return mConfigureBoundsChannel.receive();
+  }
 
   auto receive_configure_events() -> Observable<protocol::XdgToplevel::ConfigureEvent> {
     return mConfigureChannel.receive();
@@ -65,8 +70,16 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
       protocol::Seat seat = co_await use_resource(client.bind<protocol::Seat>());
       protocol::Pointer pointer = co_await use_resource(seat.get_pointer());
 
-      using ConfigureChannel = AsyncChannel<std::variant<protocol::XdgSurface::ConfigureEvent,
-                                                         protocol::XdgToplevel::ConfigureEvent>>;
+      using ConfigureQueue = AsyncQueue<
+          std::variant<protocol::XdgSurface::ConfigureEvent, protocol::XdgToplevel::ConfigureEvent,
+                       protocol::XdgToplevel::ConfigureBoundsEvent>>;
+
+      using ConfigureChannel = AsyncChannel<
+          std::variant<protocol::XdgSurface::ConfigureEvent, protocol::XdgToplevel::ConfigureEvent,
+                       protocol::XdgToplevel::ConfigureBoundsEvent>>;
+
+      auto configureBounds =
+          co_await use_resource(AsyncChannel<protocol::XdgToplevel::ConfigureBoundsEvent>::make());
 
       auto configureBuffer =
           co_await use_resource(AsyncChannel<protocol::XdgToplevel::ConfigureEvent>::make());
@@ -75,106 +88,80 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
           co_await use_resource(AsyncChannel<protocol::XdgToplevel::CloseEvent>::make());
 
       ConfigureChannel configureChannel = co_await use_resource(ConfigureChannel::make());
+      ConfigureQueue configureQueue = co_await use_resource(ConfigureQueue::make());
 
-      WindowSurfaceContext context{client, compositor, surface, configureBuffer, closeChannel};
+      auto drainQueue = configureQueue.observable().subscribe([&](auto eventTask) -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        co_await configureChannel.send(event);
+      });
 
-      AsyncScopeHandle scope = co_await use_resource(AsyncScope::make());
+      WindowSurfaceContext context{client,          compositor,      surface,
+                                   configureBounds, configureBuffer, closeChannel};
 
-      scope.spawn(
-          xdgWmBase.events().subscribe(
-              [&](IoTask<std::variant<protocol::XdgWmBase::PingEvent>> eventTask) -> IoTask<void> {
-                auto event = std::get<0>(co_await std::move(eventTask));
-                Log::i("Received XdgWmBase::PingEvent with serial {}", event.serial);
-                xdgWmBase.pong(event.serial);
-                Log::i("Sent XdgWmBase::Pong for serial {}", event.serial);
-              }),
-          context.get_env());
+      auto pingEvent = xdgWmBase.events().subscribe(
+          [&](IoTask<std::variant<protocol::XdgWmBase::PingEvent>> eventTask) -> IoTask<void> {
+            auto event = std::get<0>(co_await std::move(eventTask));
+            xdgWmBase.pong(event.serial);
+          });
 
-      scope.spawn(xdgSurface.events().subscribe(
-                      [&](IoTask<std::variant<protocol::XdgSurface::ConfigureEvent>> eventTask)
-                          -> IoTask<void> {
-                        auto event = std::get<0>(co_await std::move(eventTask));
-                        Log::i("Received from QUEUE XdgSurface::ConfigureEvent with serial {}",
-                               event.serial);
-                        co_await configureChannel.send(event);
-                      }),
-                  context.get_env());
+      auto configureSurface = xdgSurface.events().subscribe(
+          [&](IoTask<std::variant<protocol::XdgSurface::ConfigureEvent>> eventTask)
+              -> IoTask<void> {
+            auto event = std::get<0>(co_await std::move(eventTask));
+            co_await configureQueue.push(event);
+          });
 
-      scope.spawn( //
-          xdgTopLevel.events().subscribe([&](auto eventTask) -> IoTask<void> {
-            auto event = co_await std::move(eventTask);
-            switch (event.index()) {
-            case protocol::XdgToplevel::ConfigureEvent::index: {
-              Log::i("Received from QUEUE XdgToplevel::ConfigureEvent with size {}x{}",
-                     std::get<protocol::XdgToplevel::ConfigureEvent>(event).width,
-                     std::get<protocol::XdgToplevel::ConfigureEvent>(event).height);
-              co_await configureChannel.send(
-                  std::get<protocol::XdgToplevel::ConfigureEvent>(event));
-              break;
-            }
-            case protocol::XdgToplevel::CloseEvent::index: {
-              Log::i("Received from QUEUE XdgToplevel::CloseEvent");
-              co_await closeChannel.send(std::get<protocol::XdgToplevel::CloseEvent>(event));
-              break;
-            }
-            case protocol::XdgToplevel::ConfigureBoundsEvent::index: {
-              Log::i("Received from QUEUE XdgToplevel::ConfigureBoundsEvent with size {}x{}",
-                     std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).width,
-                     std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event).height);
-              break;
-            }
-            case protocol::XdgToplevel::WmCapabilitiesEvent::index: {
-              Log::i("Received from QUEUE XdgToplevel::WmCapabilitiesEvent");
-              break;
-            }
-            default:
-              break;
-            }
-          }),
-          context.get_env());
+      auto configureTopLevel = xdgTopLevel.events().subscribe([&](auto eventTask) -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        switch (event.index()) {
+        case protocol::XdgToplevel::ConfigureEvent::index: {
+          co_await configureQueue.push(std::get<protocol::XdgToplevel::ConfigureEvent>(event));
+          break;
+        }
+        case protocol::XdgToplevel::CloseEvent::index: {
+          co_await closeChannel.send(std::get<protocol::XdgToplevel::CloseEvent>(event));
+          break;
+        }
+        case protocol::XdgToplevel::ConfigureBoundsEvent::index: {
+          co_await configureQueue.push(
+              std::get<protocol::XdgToplevel::ConfigureBoundsEvent>(event));
+          break;
+        }
+        case protocol::XdgToplevel::WmCapabilitiesEvent::index: {
+          break;
+        }
+        default:
+          break;
+        }
+      });
 
-      scope.spawn( //
-          seat.events().subscribe([&](auto eventTask) -> IoTask<void> {
-            auto event = co_await std::move(eventTask);
-            switch (event.index()) {
-            case protocol::Seat::CapabilitiesEvent::index: {
-              auto capabilitiesEvent = std::get<protocol::Seat::CapabilitiesEvent>(event);
-              Log::i("Received Seat::CapabilitiesEvent with capabilities bitmask {}",
-                     capabilitiesEvent.capabilities);
-              break;
-            }
-            case protocol::Seat::NameEvent::index: {
-              auto nameEvent = std::get<protocol::Seat::NameEvent>(event);
-              Log::i("Received Seat::NameEvent with name '{}'", nameEvent.name);
-              break;
-            }
-            default:
-              break;
-            }
-          }),
-          context.get_env());
+      auto seatEvents = seat.events().subscribe([&](auto eventTask) -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        switch (event.index()) {
+        case protocol::Seat::CapabilitiesEvent::index: {
+          break;
+        }
+        case protocol::Seat::NameEvent::index: {
+          break;
+        }
+        default:
+          break;
+        }
+      });
 
-      scope.spawn( //
-          pointer.events().subscribe([&](auto eventTask) -> IoTask<void> {
-            auto event = co_await std::move(eventTask);
-            switch (event.index()) {
-            case protocol::Pointer::MotionEvent::index: {
-              auto motionEvent = std::get<protocol::Pointer::MotionEvent>(event);
-              Log::i("Received Pointer::MotionEvent at position ({}, {})",
-                     motionEvent.surface_x / 256, motionEvent.surface_y / 256);
-              break;
-            }
-            case protocol::Pointer::ButtonEvent::index: {
-              auto buttonEvent = std::get<protocol::Pointer::ButtonEvent>(event);
-              Log::i("Received Pointer::ButtonEvent for button {} with state {}",
-                     buttonEvent.button, buttonEvent.state);
-              break;
-            }
-            default:
-              break;
-            }
-          }),
-          context.get_env());
+      auto pointerEvents = pointer.events().subscribe([&](auto eventTask) -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        switch (event.index()) {
+        case protocol::Pointer::MotionEvent::index: {
+          break;
+        }
+        case protocol::Pointer::ButtonEvent::index: {
+          break;
+        }
+        default:
+          break;
+        }
+      });
 
       WindowSurface windowSurface = context.get_window_surface();
 
@@ -182,19 +169,29 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
 
       surface.commit();
 
-      auto configureEvents =
-          configureChannel.receive().subscribe([&](auto eventTask) -> IoTask<void> {
-            auto event = co_await std::move(eventTask);
-            if (auto configureEvent = std::get_if<protocol::XdgToplevel::ConfigureEvent>(&event)) {
-              co_await configureBuffer.send(*configureEvent);
-            } else {
-              auto surfaceEvent = std::get<protocol::XdgSurface::ConfigureEvent>(event);
-              xdgSurface.ack_configure(surfaceEvent.serial);
-              surface.commit();
-            }
-          });
+      auto configureEvents = configureChannel.receive().subscribe([&](auto eventTask)
+                                                                      -> IoTask<void> {
+        auto event = co_await std::move(eventTask);
+        co_await std::visit(
+            Overloaded{
+                [&](protocol::XdgSurface::ConfigureEvent configureEvent) -> IoTask<void> {
+                  xdgSurface.ack_configure(configureEvent.serial);
+                  co_return;
+                },
+                [&](protocol::XdgToplevel::ConfigureEvent configureEvent) -> IoTask<void> {
+                  co_await configureBuffer.send(configureEvent);
+                },
+                [&](protocol::XdgToplevel::ConfigureBoundsEvent configureBoundsEvent)
+                    -> IoTask<void> {
+                  co_await configureBounds.send(configureBoundsEvent);
+                }},
+            event);
+      });
 
-      co_await when_any(receiver(coro_just(windowSurface)), std::move(configureEvents),
+      co_await when_any(receiver(coro_just(windowSurface)), std::move(drainQueue),
+                        std::move(pingEvent), std::move(configureSurface),
+                        std::move(configureTopLevel), std::move(seatEvents),
+                        std::move(pointerEvents), std::move(configureEvents),
                         upon_stop_requested( //
                             [&] {            //
                               context.mStopSource.request_stop();
@@ -209,6 +206,11 @@ auto WindowSurface::make(Client client) -> Observable<WindowSurface> {
     Client mClient;
   };
   return WindowSurfaceObservable{std::move(client)};
+}
+
+auto WindowSurface::configure_bounds_events()
+    -> Observable<protocol::XdgToplevel::ConfigureBoundsEvent> {
+  return mContext->receive_configure_bounds_events();
 }
 
 auto WindowSurface::configure_events() -> Observable<protocol::XdgToplevel::ConfigureEvent> {
@@ -229,9 +231,7 @@ auto WindowSurface::close_events() -> Observable<protocol::XdgToplevel::CloseEve
   return mContext->receive_close_events();
 }
 
-auto WindowSurface::commit() -> void {
-  mContext->mSurface.commit(); 
-}
+auto WindowSurface::commit() -> void { mContext->mSurface.commit(); }
 
 auto WindowSurface::frame() -> IoTask<void> {
   cw::protocol::Callback callback = co_await use_resource(mContext->mSurface.frame());

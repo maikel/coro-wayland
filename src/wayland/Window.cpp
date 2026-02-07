@@ -7,6 +7,8 @@
 #include "when_all.hpp"
 #include "when_any.hpp"
 
+#include "Logging.hpp"
+
 #include "GlyphCache.hpp"
 #include "RenderContext.hpp"
 #include "TextRenderer.hpp"
@@ -39,6 +41,7 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
       TextRenderer textRenderer(glyphCache);
       AnyRenderObject rootRenderObject =
           co_await use_resource(std::move(rootWidget).render_object());
+      Size configuredBounds{};
 
       auto redrawOnChange = rootRenderObject->dirty().subscribe([&](auto isDirty) -> IoTask<void> {
         co_await when_all(std::move(isDirty), windowSurface.frame());
@@ -53,19 +56,26 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
         // windowSurface.commit();
       });
 
+      auto configureBounds =
+          windowSurface.configure_bounds_events().subscribe([&](auto eventTask) -> IoTask<void> {
+            auto event = co_await std::move(eventTask);
+            configuredBounds = Size{.width = narrow<std::size_t>(event.width),
+                                    .height = narrow<std::size_t>(event.height)};
+          });
+
       auto configureFrameBuffer =
           windowSurface.configure_events().subscribe([&](auto eventTask) -> IoTask<void> {
             auto event = co_await std::move(eventTask);
-            co_await frameBufferPool.resize(Width{narrow<std::size_t>(event.width)},
-                                            Height{narrow<std::size_t>(event.height)});
             auto available = co_await frameBufferPool.available_buffer();
-            Extents bufferSize = available.pixels.extents();
-            BoxConstraints constraints = BoxConstraints::loose(Size{bufferSize.extent(0), bufferSize.extent(1)});
+            BoxConstraints constraints = BoxConstraints::loose(configuredBounds);
             RenderContext fullContext{available.pixels, textRenderer};
             BoxConstraints newConstraints = rootRenderObject->layout(fullContext, constraints);
+            co_await frameBufferPool.resize(Width{newConstraints.smallest().width},
+                                            Height{newConstraints.smallest().height});
+            available = co_await frameBufferPool.available_buffer();
             PixelsView pixels =
-                available.pixels.subview(Position{0, 0}, Extents{newConstraints.biggest().width,
-                                                                 newConstraints.biggest().height});
+                available.pixels.subview(Position{0, 0}, Extents{newConstraints.smallest().width,
+                                                                 newConstraints.smallest().height});
             RenderContext renderContext{pixels, textRenderer};
             auto regions = rootRenderObject->render(renderContext);
             windowSurface.attach(available.buffer);
@@ -77,7 +87,7 @@ auto Window::make(AnyWidget rootWidget) -> Observable<Window> {
 
       Window window{context};
       co_await when_any(receiver(coro_just(window)), std::move(redrawOnChange),
-                        std::move(configureFrameBuffer));
+                        std::move(configureBounds), std::move(configureFrameBuffer));
     }
 
     auto subscribe(std::function<auto(IoTask<Window>)->IoTask<void>> receiver) && noexcept

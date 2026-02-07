@@ -4,6 +4,7 @@
 #include "wayland/FrameBufferPool.hpp"
 #include "AsyncChannel.hpp"
 #include "AsyncQueue.hpp"
+#include "Logging.hpp"
 #include "Strand.hpp"
 #include "coro_guard.hpp"
 #include "narrow.hpp"
@@ -21,8 +22,8 @@
 namespace cw {
 
 struct FrameBufferPoolContext : ImmovableBase {
-  static constexpr std::size_t kMinHeight = 480;
-  static constexpr std::size_t kMinWidth = 640;
+  static constexpr std::size_t kMinHeight = 1;
+  static constexpr std::size_t kMinWidth = 1;
 
   Client mClient;
   protocol::Shm mShm;

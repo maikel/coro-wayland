@@ -15,6 +15,8 @@ class WindowSurface {
 public:
   static auto make(Client client) -> Observable<WindowSurface>;
 
+  auto configure_bounds_events() -> Observable<protocol::XdgToplevel::ConfigureBoundsEvent>;
+
   auto configure_events() -> Observable<protocol::XdgToplevel::ConfigureEvent>;
 
   auto close_events() -> Observable<protocol::XdgToplevel::CloseEvent>;
